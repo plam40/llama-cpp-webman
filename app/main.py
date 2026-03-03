@@ -69,7 +69,7 @@ def load_config():
             "threads": max(1, (os.cpu_count() or 4) // 2),
             "threads_batch": os.cpu_count() or 4,
             "n_gpu_layers": 0,
-            "flash_attn": False,
+            "flash_attn": "on",
             "mlock": False,
             "mmap": True,
             "cache_type_k": "f16",
@@ -310,8 +310,9 @@ class LlamaServerManager:
         cmd.extend(["--cache-type-k", str(params.get("cache_type_k", "f16"))])
         cmd.extend(["--cache-type-v", str(params.get("cache_type_v", "f16"))])
 
-        if params.get("flash_attn", False):
-            cmd.append("--flash-attn")
+        fa = params.get("flash_attn")
+        if fa in ("on", "off"):
+            cmd.extend(["--flash-attn", fa])
         if params.get("mlock", False):
             cmd.append("--mlock")
         if params.get("mmap", True):
@@ -597,10 +598,31 @@ class LlamaServerManager:
     def install_service_env(self, model_path: str, params: dict) -> tuple[bool, str]:
         """Write the environment file used by the systemd llama-server service."""
         cmd = self.build_command(model_path, params)
-        # The service ExecStart just calls llama-server, so we write all args
-        # We rewrite the service file's ExecStart to include the full command
         server_path = config.get("llama_server_path", "llama-server")
         exec_line = " ".join(shlex.quote(c) for c in cmd)
+
+        # Validate that the configured service user actually exists on the system.
+        # Fall back to 'root' if it does not so systemd doesn't refuse to start.
+        svc_user = config.get("service_user", "root") or "root"
+        try:
+            import pwd, grp
+            pwd.getpwnam(svc_user)
+            # Ensure the group also exists (group name == user name by convention)
+            try:
+                grp.getgrnam(svc_user)
+                svc_group = svc_user
+            except KeyError:
+                logger.warning(
+                    f"Group '{svc_user}' not found – service will use group 'root'"
+                )
+                svc_group = "root"
+        except KeyError:
+            logger.warning(
+                f"Service user '{svc_user}' not found on this system – "
+                "falling back to 'root' for the systemd unit"
+            )
+            svc_user = "root"
+            svc_group = "root"
 
         service_content = f"""[Unit]
 Description=llama.cpp Server
@@ -609,8 +631,8 @@ Wants=network.target
 
 [Service]
 Type=simple
-User={config.get('service_user', 'root')}
-Group={config.get('service_user', 'root')}
+User={svc_user}
+Group={svc_group}
 WorkingDirectory={config.get('install_dir', '/opt/llama-manager')}
 ExecStart={exec_line}
 Restart=on-failure
@@ -628,14 +650,26 @@ WantedBy=multi-user.target
             service_path = Path("/etc/systemd/system/llama-server.service")
             service_path.write_text(service_content)
             subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
-            logger.info("llama-server.service updated and daemon reloaded")
-            return True, "Service file updated successfully"
+            logger.info(
+                f"llama-server.service updated (User={svc_user}) and daemon reloaded"
+            )
+            msg = "Service file updated successfully"
+            if svc_user == "root" and config.get("service_user", "root") != "root":
+                msg += (
+                    f" (WARNING: configured user '{config.get('service_user')}' "
+                    "not found – running as root)"
+                )
+            return True, msg
         except Exception as exc:
             return False, f"Failed to write service file: {exc}"
 
 
 # Global server manager instance
 server_manager = LlamaServerManager()
+server_manager._append_log("[MANAGER] LlamaServer Manager started")
+server_manager._append_log(f"[MANAGER] llama-server path: {config.get('llama_server_path', 'not configured')}")
+server_manager._append_log(f"[MANAGER] Models directory : {config.get('models_dir', '/opt/models')}")
+server_manager._append_log("[MANAGER] Waiting for server start command...")
 
 # ---------------------------------------------------------------------------
 # System Metrics Collection (background thread)
@@ -654,10 +688,12 @@ metrics_lock = threading.Lock()
 
 def collect_system_metrics():
     """Background thread: collect system metrics every ~1s."""
+    import gevent
     _first_run = True
     while True:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.5, percpu=False)
+            gevent.sleep(0)  # yield to event loop after blocking call
             cpu_per_core = psutil.cpu_percent(interval=0, percpu=True)
             cpu_freq = psutil.cpu_freq()
             mem = psutil.virtual_memory()
@@ -859,11 +895,12 @@ PARAMETER_INFO = {
     "flash_attn": {
         "label": "Flash Attention",
         "description": "Enable Flash Attention for faster and more memory-efficient attention computation.",
-        "detail": "Flash Attention is an optimized attention algorithm that reduces memory usage from O(n²) to O(n) and improves speed by minimizing memory reads/writes. It achieves this by tiling the attention computation and never materializing the full attention matrix. Requires compatible hardware and model format. Highly recommended when available as it provides significant speedups with large context sizes.",
+        "detail": "Flash Attention is an optimized attention algorithm that reduces memory usage from O(n²) to O(n) and improves speed by minimizing memory reads/writes. It achieves this by tiling the attention computation and never materializing the full attention matrix. Requires compatible hardware and model format. Highly recommended when available as it provides significant speedups with large context sizes. Set to 'on' to enable or 'off' to disable; leave the parameter toggle OFF to omit the flag entirely.",
         "increase_effect": "Significantly faster attention computation. Much lower memory usage for large context sizes. Better scaling to long sequences.",
         "decrease_effect": "Standard attention is used. Higher memory usage with large contexts. Slower for long sequences. More compatible across hardware.",
-        "type": "boolean",
-        "default": False,
+        "type": "select",
+        "options": ["on", "off"],
+        "default": "on",
         "category": "gpu",
     },
     "mlock": {
@@ -1222,7 +1259,7 @@ def metrics_emitter():
                 "llama": llama_metrics,
                 "health": health,
                 "timestamp": time.time(),
-            })
+            }, namespace="/")
 
             _emit_count += 1
             # Periodic confirmation that data is flowing (every 30 s)
