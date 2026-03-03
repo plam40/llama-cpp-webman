@@ -13,6 +13,7 @@ import logging
 import subprocess
 import threading
 import shlex
+import shutil
 import re
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -594,8 +595,6 @@ WantedBy=multi-user.target
         except Exception as exc:
             return False, f"Failed to write service file: {exc}"
 
-
-import shutil  # needed for shutil.which above
 
 # Global server manager instance
 server_manager = LlamaServerManager()
