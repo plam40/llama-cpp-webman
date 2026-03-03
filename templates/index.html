@@ -1,1 +1,622 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🦙 LlamaServer Manager</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🦙</text></svg>">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="navbar-brand">
+            <span class="logo">🦙</span>
+            <span class="brand-text">LlamaServer Manager</span>
+            <span class="version-badge">v1.0</span>
+        </div>
+        <div class="navbar-status">
+            <div class="server-indicator" id="serverIndicator">
+                <span class="indicator-dot"></span>
+                <span class="indicator-text">Checking...</span>
+            </div>
+            <div class="uptime-display" id="uptimeDisplay" style="display:none;">
+                <span class="uptime-icon">⏱</span>
+                <span class="uptime-text" id="uptimeText">--:--:--</span>
+            </div>
+        </div>
+        <div class="navbar-actions">
+            <button class="btn btn-icon" id="btnThemeToggle" title="Toggle Theme">
+                <span id="themeIcon">🌙</span>
+            </button>
+        </div>
+    </nav>
 
+    <!-- Main Content -->
+    <div class="main-container">
+        <!-- Tabs Navigation -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" data-tab="dashboard">
+                <span class="tab-icon">📊</span>
+                <span class="tab-label">Dashboard</span>
+            </button>
+            <button class="tab-btn" data-tab="server">
+                <span class="tab-icon">🖥️</span>
+                <span class="tab-label">Server Control</span>
+            </button>
+            <button class="tab-btn" data-tab="parameters">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">Parameters</span>
+            </button>
+            <button class="tab-btn" data-tab="chat">
+                <span class="tab-icon">💬</span>
+                <span class="tab-label">Chat</span>
+            </button>
+            <button class="tab-btn" data-tab="service">
+                <span class="tab-icon">🛡️</span>
+                <span class="tab-label">Service</span>
+            </button>
+            <button class="tab-btn" data-tab="logs">
+                <span class="tab-icon">📋</span>
+                <span class="tab-label">Logs</span>
+            </button>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Dashboard                                                -->
+        <!-- ============================================================ -->
+        <div class="tab-content active" id="tab-dashboard">
+            <!-- System Metrics Row -->
+            <div class="section-header">
+                <h2>System Metrics</h2>
+                <span class="update-indicator" id="metricsUpdateIndicator">
+                    <span class="pulse-dot"></span> Live
+                </span>
+            </div>
+
+            <div class="metrics-grid">
+                <!-- CPU Card -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">🔲</span>
+                        <span class="metric-title">CPU</span>
+                    </div>
+                    <div class="metric-body">
+                        <div class="gauge-container">
+                            <svg class="gauge" viewBox="0 0 120 120">
+                                <circle class="gauge-bg" cx="60" cy="60" r="52" />
+                                <circle class="gauge-fill gauge-cpu" cx="60" cy="60" r="52" id="gaugeCpu" />
+                                <text x="60" y="55" class="gauge-text" id="gaugeCpuText">0%</text>
+                                <text x="60" y="72" class="gauge-subtext" id="gaugeCpuSub">--</text>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <div class="metric-row">
+                                <span class="metric-label">Frequency</span>
+                                <span class="metric-value" id="cpuFreq">-- MHz</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Temperature</span>
+                                <span class="metric-value" id="cpuTemp">-- °C</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Load (1/5/15m)</span>
+                                <span class="metric-value" id="cpuLoad">-- / -- / --</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Cores / Threads</span>
+                                <span class="metric-value" id="cpuCores">-- / --</span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Per-core bars -->
+                    <div class="core-bars" id="cpuCoreBars"></div>
+                </div>
+
+                <!-- Memory Card -->
+                <div class="metric-card">
+                    <div class="metric-header">
+                        <span class="metric-icon">💾</span>
+                        <span class="metric-title">Memory</span>
+                    </div>
+                    <div class="metric-body">
+                        <div class="gauge-container">
+                            <svg class="gauge" viewBox="0 0 120 120">
+                                <circle class="gauge-bg" cx="60" cy="60" r="52" />
+                                <circle class="gauge-fill gauge-mem" cx="60" cy="60" r="52" id="gaugeMem" />
+                                <text x="60" y="55" class="gauge-text" id="gaugeMemText">0%</text>
+                                <text x="60" y="72" class="gauge-subtext" id="gaugeMemSub">--</text>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <div class="metric-row">
+                                <span class="metric-label">Used</span>
+                                <span class="metric-value" id="memUsed">-- MB</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Available</span>
+                                <span class="metric-value" id="memAvailable">-- MB</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Total</span>
+                                <span class="metric-value" id="memTotal">-- MB</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Swap</span>
+                                <span class="metric-value" id="memSwap">-- / -- MB</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-label">RAM Usage</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill mem-bar" id="memBar" style="width:0%"></div>
+                        </div>
+                        <div class="bar-label">Swap Usage</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill swap-bar" id="swapBar" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GPU Card -->
+                <div class="metric-card" id="gpuCard">
+                    <div class="metric-header">
+                        <span class="metric-icon">🎮</span>
+                        <span class="metric-title">GPU</span>
+                        <span class="metric-subtitle" id="gpuName">--</span>
+                    </div>
+                    <div class="metric-body">
+                        <div class="gauge-container">
+                            <svg class="gauge" viewBox="0 0 120 120">
+                                <circle class="gauge-bg" cx="60" cy="60" r="52" />
+                                <circle class="gauge-fill gauge-gpu" cx="60" cy="60" r="52" id="gaugeGpu" />
+                                <text x="60" y="55" class="gauge-text" id="gaugeGpuText">N/A</text>
+                                <text x="60" y="72" class="gauge-subtext" id="gaugeGpuSub">--</text>
+                            </svg>
+                        </div>
+                        <div class="metric-details">
+                            <div class="metric-row">
+                                <span class="metric-label">VRAM Used</span>
+                                <span class="metric-value" id="gpuMemUsed">-- MB</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">VRAM Total</span>
+                                <span class="metric-value" id="gpuMemTotal">-- MB</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Temperature</span>
+                                <span class="metric-value" id="gpuTemp">-- °C</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Power</span>
+                                <span class="metric-value" id="gpuPower">-- / -- W</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Fan Speed</span>
+                                <span class="metric-value" id="gpuFan">--%</span>
+                            </div>
+                            <div class="metric-row">
+                                <span class="metric-label">Clock (GPU/Mem)</span>
+                                <span class="metric-value" id="gpuClock">-- / -- MHz</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bar-container">
+                        <div class="bar-label">GPU Utilization</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill gpu-bar" id="gpuUtilBar" style="width:0%"></div>
+                        </div>
+                        <div class="bar-label">VRAM Usage</div>
+                        <div class="progress-bar">
+                            <div class="progress-fill vram-bar" id="gpuMemBar" style="width:0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Disk Card -->
+                <div class="metric-card metric-card-sm">
+                    <div class="metric-header">
+                        <span class="metric-icon">💿</span>
+                        <span class="metric-title">Disk</span>
+                    </div>
+                    <div class="metric-details" style="padding: 12px;">
+                        <div class="metric-row">
+                            <span class="metric-label">Used</span>
+                            <span class="metric-value" id="diskUsed">-- GB</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Free</span>
+                            <span class="metric-value" id="diskFree">-- GB</span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Total</span>
+                            <span class="metric-value" id="diskTotal">-- GB</span>
+                        </div>
+                    </div>
+                    <div class="bar-container">
+                        <div class="progress-bar">
+                            <div class="progress-fill disk-bar" id="diskBar" style="width:0%"></div>
+                        </div>
+                        <div class="bar-value" id="diskPercent">0%</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- llama-server Stats -->
+            <div class="section-header" style="margin-top:24px;">
+                <h2>llama-server Statistics</h2>
+            </div>
+            <div class="stats-grid" id="llamaStatsGrid">
+                <div class="stat-card">
+                    <div class="stat-label">Status</div>
+                    <div class="stat-value" id="statStatus">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Model</div>
+                    <div class="stat-value stat-value-sm" id="statModel">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">PID</div>
+                    <div class="stat-value" id="statPid">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">RSS Memory</div>
+                    <div class="stat-value" id="statRss">-- MB</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Server CPU %</div>
+                    <div class="stat-value" id="statCpuPercent">--%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Threads</div>
+                    <div class="stat-value" id="statThreads">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Prompt Tokens</div>
+                    <div class="stat-value" id="statPromptTokens">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Generated Tokens</div>
+                    <div class="stat-value" id="statGenTokens">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Prompt tok/s</div>
+                    <div class="stat-value" id="statPromptTps">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Generation tok/s</div>
+                    <div class="stat-value" id="statGenTps">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">KV Cache Used</div>
+                    <div class="stat-value" id="statKvUsed">--</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Requests Processed</div>
+                    <div class="stat-value" id="statRequests">--</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Server Control                                           -->
+        <!-- ============================================================ -->
+        <div class="tab-content" id="tab-server">
+            <div class="section-header">
+                <h2>Server Control</h2>
+            </div>
+
+            <!-- Model Selection -->
+            <div class="control-section">
+                <div class="control-header">
+                    <span class="control-icon">📁</span>
+                    <h3>Model Selection</h3>
+                </div>
+                <div class="control-body">
+                    <div class="form-group">
+                        <label for="modelSelect">Available Models</label>
+                        <div class="model-select-wrapper">
+                            <select id="modelSelect" class="form-control">
+                                <option value="">-- Loading models... --</option>
+                            </select>
+                            <button class="btn btn-sm btn-secondary" id="btnRefreshModels" title="Refresh model list">
+                                🔄
+                            </button>
+                        </div>
+                    </div>
+                    <div class="model-info" id="modelInfo" style="display:none;">
+                        <div class="model-info-row">
+                            <span class="model-info-label">File:</span>
+                            <span class="model-info-value" id="modelInfoName">--</span>
+                        </div>
+                        <div class="model-info-row">
+                            <span class="model-info-label">Size:</span>
+                            <span class="model-info-value" id="modelInfoSize">--</span>
+                        </div>
+                        <div class="model-info-row">
+                            <span class="model-info-label">Path:</span>
+                            <span class="model-info-value model-info-path" id="modelInfoPath">--</span>
+                        </div>
+                        <div class="model-info-row">
+                            <span class="model-info-label">Modified:</span>
+                            <span class="model-info-value" id="modelInfoModified">--</span>
+                        </div>
+                    </div>
+                    <div class="models-dir-info">
+                        <span class="info-icon">ℹ️</span>
+                        Models directory: <code id="modelsDirPath">/opt/models</code>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Server Actions -->
+            <div class="control-section">
+                <div class="control-header">
+                    <span class="control-icon">🎛️</span>
+                    <h3>Server Actions</h3>
+                </div>
+                <div class="control-body">
+                    <div class="action-buttons">
+                        <button class="btn btn-success btn-lg" id="btnStartServer">
+                            <span class="btn-icon">▶️</span>
+                            Start Server
+                        </button>
+                        <button class="btn btn-danger btn-lg" id="btnStopServer" disabled>
+                            <span class="btn-icon">⏹️</span>
+                            Stop Server
+                        </button>
+                        <button class="btn btn-warning btn-lg" id="btnRestartServer" disabled>
+                            <span class="btn-icon">🔄</span>
+                            Restart Server
+                        </button>
+                    </div>
+                    <div class="command-preview" id="commandPreview" style="display:none;">
+                        <div class="command-preview-header">
+                            <span>📝 Command Preview</span>
+                            <button class="btn btn-xs btn-secondary" id="btnCopyCommand" title="Copy command">📋</button>
+                        </div>
+                        <pre id="commandPreviewText"></pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Current Status -->
+            <div class="control-section">
+                <div class="control-header">
+                    <span class="control-icon">📡</span>
+                    <h3>Current Status</h3>
+                </div>
+                <div class="control-body">
+                    <div class="status-grid" id="serverStatusGrid">
+                        <div class="status-item">
+                            <span class="status-label">State</span>
+                            <span class="status-value" id="srvState">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Health</span>
+                            <span class="status-value" id="srvHealth">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Loaded Model</span>
+                            <span class="status-value" id="srvModel">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Uptime</span>
+                            <span class="status-value" id="srvUptime">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">PID</span>
+                            <span class="status-value" id="srvPid">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">Memory (RSS)</span>
+                            <span class="status-value" id="srvMem">--</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Parameters                                               -->
+        <!-- ============================================================ -->
+        <div class="tab-content" id="tab-parameters">
+            <div class="section-header">
+                <h2>Server Parameters</h2>
+                <div class="section-actions">
+                    <button class="btn btn-sm btn-secondary" id="btnResetParams">Reset to Defaults</button>
+                    <button class="btn btn-sm btn-primary" id="btnApplyParams">Apply & Restart</button>
+                </div>
+            </div>
+
+            <!-- Parameter categories -->
+            <div class="param-categories">
+                <button class="param-cat-btn active" data-cat="all">All</button>
+                <button class="param-cat-btn" data-cat="performance">⚡ Performance</button>
+                <button class="param-cat-btn" data-cat="memory">💾 Memory</button>
+                <button class="param-cat-btn" data-cat="gpu">🎮 GPU</button>
+                <button class="param-cat-btn" data-cat="sampling">🎲 Sampling</button>
+                <button class="param-cat-btn" data-cat="server">🖥️ Server</button>
+                <button class="param-cat-btn" data-cat="generation">📝 Generation</button>
+            </div>
+
+            <div class="params-container" id="paramsContainer">
+                <!-- Dynamically populated -->
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Chat                                                     -->
+        <!-- ============================================================ -->
+        <div class="tab-content" id="tab-chat">
+            <div class="section-header">
+                <h2>Chat</h2>
+                <div class="section-actions">
+                    <button class="btn btn-sm btn-secondary" id="btnClearChat">🗑️ Clear</button>
+                </div>
+            </div>
+
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="chat-welcome">
+                        <div class="chat-welcome-icon">🦙</div>
+                        <div class="chat-welcome-text">
+                            Start a conversation with your LLM.<br>
+                            <span class="chat-welcome-sub">Make sure the server is running first.</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <textarea id="chatInput" class="chat-input" placeholder="Type your message..." rows="1"></textarea>
+                        <button class="btn btn-primary btn-send" id="btnSendChat" title="Send message">
+                            <span>➤</span>
+                        </button>
+                    </div>
+                    <div class="chat-input-info">
+                        <span id="chatStatus">Ready</span>
+                        <span id="chatTokenInfo"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Service Management                                       -->
+        <!-- ============================================================ -->
+        <div class="tab-content" id="tab-service">
+            <div class="section-header">
+                <h2>Service Management</h2>
+            </div>
+
+            <!-- llama-server service -->
+            <div class="control-section">
+                <div class="control-header">
+                    <span class="control-icon">🛡️</span>
+                    <h3>llama-server.service</h3>
+                </div>
+                <div class="control-body">
+                    <div class="service-status-grid">
+                        <div class="service-status-item">
+                            <span class="service-status-label">Installed</span>
+                            <span class="service-status-value" id="svcLlamaInstalled">--</span>
+                        </div>
+                        <div class="service-status-item">
+                            <span class="service-status-label">Enabled (Boot)</span>
+                            <span class="service-status-value" id="svcLlamaEnabled">--</span>
+                        </div>
+                        <div class="service-status-item">
+                            <span class="service-status-label">Active</span>
+                            <span class="service-status-value" id="svcLlamaActive">--</span>
+                        </div>
+                    </div>
+                    <div class="service-actions">
+                        <button class="btn btn-primary" id="btnSvcLlamaInstall">
+                            📦 Install / Update Service
+                        </button>
+                        <button class="btn btn-success" id="btnSvcLlamaEnable">
+                            ✅ Enable (Start on Boot)
+                        </button>
+                        <button class="btn btn-secondary" id="btnSvcLlamaDisable">
+                            ⛔ Disable (No Boot)
+                        </button>
+                        <button class="btn btn-success" id="btnSvcLlamaStart">
+                            ▶️ Start
+                        </button>
+                        <button class="btn btn-danger" id="btnSvcLlamaStop">
+                            ⏹️ Stop
+                        </button>
+                        <button class="btn btn-warning" id="btnSvcLlamaRestart">
+                            🔄 Restart
+                        </button>
+                    </div>
+                    <div class="info-block info-block-sm">
+                        <span class="info-icon">ℹ️</span>
+                        <div>
+                            <strong>Install / Update Service</strong> writes the current model and parameters
+                            into the systemd service file. The service will use these settings when started
+                            via systemctl. Make sure to select a model and configure parameters on the
+                            Server Control and Parameters tabs first.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- llama-manager service -->
+            <div class="control-section">
+                <div class="control-header">
+                    <span class="control-icon">🌐</span>
+                    <h3>llama-manager.service (This Web UI)</h3>
+                </div>
+                <div class="control-body">
+                    <div class="service-status-grid">
+                        <div class="service-status-item">
+                            <span class="service-status-label">Installed</span>
+                            <span class="service-status-value" id="svcManagerInstalled">--</span>
+                        </div>
+                        <div class="service-status-item">
+                            <span class="service-status-label">Enabled (Boot)</span>
+                            <span class="service-status-value" id="svcManagerEnabled">--</span>
+                        </div>
+                        <div class="service-status-item">
+                            <span class="service-status-label">Active</span>
+                            <span class="service-status-value" id="svcManagerActive">--</span>
+                        </div>
+                    </div>
+                    <div class="service-actions">
+                        <button class="btn btn-success" id="btnSvcManagerEnable">
+                            ✅ Enable (Start on Boot)
+                        </button>
+                        <button class="btn btn-secondary" id="btnSvcManagerDisable">
+                            ⛔ Disable (No Boot)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TAB: Logs                                                     -->
+        <!-- ============================================================ -->
+        <div class="tab-content" id="tab-logs">
+            <div class="section-header">
+                <h2>Server Logs</h2>
+                <div class="section-actions">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="logAutoScroll" checked>
+                        <span>Auto-scroll</span>
+                    </label>
+                    <button class="btn btn-sm btn-secondary" id="btnClearLogs">🗑️ Clear</button>
+                    <button class="btn btn-sm btn-secondary" id="btnRefreshLogs">🔄 Refresh</button>
+                </div>
+            </div>
+            <div class="log-container" id="logContainer">
+                <pre id="logContent" class="log-content">Waiting for logs...</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay" style="display:none;">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="modalTitle">Confirm</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="modalCancel">Cancel</button>
+                <button class="btn btn-primary" id="modalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
