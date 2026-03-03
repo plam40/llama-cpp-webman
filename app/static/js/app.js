@@ -387,13 +387,13 @@
             let stateText = isRunning ? 'Running' : 'Stopped';
             if (isRunning && isExternal) stateText = 'Running (External)';
             srvState.textContent = stateText;
-            srvState.className = `status-value ${isRunning ? 'text-success' : 'text-danger'}`;
+            srvState.className = `status-table-value ${isRunning ? 'text-success' : 'text-danger'}`;
         }
         const srvHealth = $('#srvHealth');
         if (srvHealth) {
             const h = (health && health.status) || (isRunning ? 'checking...' : '--');
             srvHealth.textContent = h;
-            srvHealth.className = `status-value ${h === 'ok' ? 'text-success' : ''}`;
+            srvHealth.className = `status-table-value ${h === 'ok' ? 'text-success' : ''}`;
         }
         if ($('#srvModel')) $('#srvModel').textContent = server.model_name || '--';
         if ($('#srvUptime')) $('#srvUptime').textContent = server.uptime || '--';
@@ -471,6 +471,11 @@
      * onChange: callback(item)
      */
     function initWheelSelect(container, items, onChange) {
+        // Abort previous listeners when re-initialising the same container
+        if (container._wsAbort) container._wsAbort.abort();
+        const ac = new AbortController();
+        container._wsAbort = ac;
+
         container._wsItems = items;
         container._wsIndex = 0;
         container._wsOnChange = onChange;
@@ -481,22 +486,22 @@
             e.preventDefault();
             const dir = e.deltaY > 0 ? 1 : -1;
             _wsMove(container, dir);
-        }, { passive: false });
+        }, { passive: false, signal: ac.signal });
 
-        // Arrow buttons
+        // Arrow buttons – one step per click (no wrapping)
         container.querySelectorAll('.wheel-select-arrow').forEach((btn) => {
             btn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 const dir = btn.dataset.dir === 'next' ? 1 : -1;
                 _wsMove(container, dir);
-            });
+            }, { signal: ac.signal });
         });
 
         // Keyboard
         container.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); _wsMove(container, -1); }
             if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); _wsMove(container, 1); }
-        });
+        }, { signal: ac.signal });
     }
 
     function _wsMove(container, dir) {

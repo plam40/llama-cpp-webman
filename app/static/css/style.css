@@ -1067,6 +1067,57 @@ select.form-control {
     word-break: break-all;
 }
 
+/* -- Server Control: side-by-side top row -- */
+.server-top-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.server-top-card {
+    margin-bottom: 0;          /* override default control-section margin */
+}
+
+/* -- Condensed status table -- */
+.status-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.status-table td {
+    padding: 7px 10px;
+    vertical-align: middle;
+}
+
+.status-table tr:not(:last-child) td {
+    border-bottom: 1px solid var(--border-color);
+}
+
+.status-table-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    width: 1%;
+    padding-right: 8px !important;
+}
+
+.status-table-value {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+}
+
+.status-table-value-truncate {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* --------------------------------------------------------------------------
    Parameters Tab
    -------------------------------------------------------------------------- */
@@ -1900,6 +1951,10 @@ select.form-control {
     .param-card-right {
         width: 100%;
         justify-content: space-between;
+    }
+
+    .server-top-row {
+        grid-template-columns: 1fr;
     }
 
     .service-status-grid {
