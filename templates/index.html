@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Llama Server Manager</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+</head>
+<body>
+    <div id="app" class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1>🦙 Llama Server Manager</h1>
+                <div class="header-status">
+                    <div class="status-badge" id="serverStatus">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusText">Offline</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Left Sidebar -->
+            <aside class="sidebar">
+                <nav class="nav-menu">
+                    <button class="nav-item active" data-tab="dashboard">
+                        📊 Dashboard
+                    </button>
+                    <button class="nav-item" data-tab="config">
+                        ⚙️ Configuration
+                    </button>
+                    <button class="nav-item" data-tab="models">
+                        📦 Models
+                    </button>
+                    <button class="nav-item" data-tab="logs">
+                        📝 Logs
+                    </button>
+                    <button class="nav-item" data-tab="services">
+                        🔧 Services
+                    </button>
+                    <button class="nav-item" data-tab="system">
+                        💻 System Info
+                    </button>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <section class="content">
+                <!-- Dashboard Tab -->
+                <div class="tab-content active" id="dashboard-tab">
+                    <h2>Dashboard</h2>
+
+                    <!-- Server Control Panel -->
+                    <div class="panel">
+                        <h3>Server Control</h3>
+                        <div class="server-control">
+                            <button id="startBtn" class="btn btn-success">Start Server</button>
+                            <button id="stopBtn" class="btn btn-danger" disabled>Stop Server</button>
+                            <button id="restartBtn" class="btn btn-warning" disabled>Restart Server</button>
+                        </div>
+                        <div id="serverMessage" class="message"></div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="metrics-grid">
+                        <!-- CPU Metrics -->
+                        <div class="metric-card">
+                            <h4>CPU</h4>
+                            <div class="metric-value" id="cpuPercent">0%</div>
+                            <div class="metric-detail">
+                                <div id="cpuBars" class="cpu-bars"></div>
+                            </div>
+                            <div class="metric-info">
+                                <span id="cpuInfo">0 cores</span>
+                            </div>
+                        </div>
+
+                        <!-- Memory Metrics -->
+                        <div class="metric-card">
+                            <h4>Memory</h4>
+                            <div class="metric-value" id="memPercent">0%</div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="memBar"></div>
+                            </div>
+                            <div class="metric-info" id="memInfo">0 GB / 0 GB</div>
+                        </div>
+
+                        <!-- GPU Metrics -->
+                        <div class="metric-card">
+                            <h4>GPU</h4>
+                            <div id="gpuContainer">
+                                <div class="metric-info">No GPU detected</div>
+                            </div>
+                        </div>
+
+                        <!-- Llama Health -->
+                        <div class="metric-card">
+                            <h4>Llama Health</h4>
+                            <div id="llamaHealthContainer">
+                                <div class="metric-info">Server offline</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Uptime and Slots -->
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <h4>Uptime</h4>
+                            <div class="metric-value" id="uptime">0s</div>
+                        </div>
+                        <div class="metric-card">
+                            <h4>Active Slots</h4>
+                            <div class="metric-value" id="activeSlots">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Tab -->
+                <div class="tab-content" id="config-tab">
+                    <h2>Configuration</h2>
+                    <div class="panel">
+                        <form id="configForm">
+                            <div class="form-group">
+                                <label for="llama_server_path">Llama Server Binary Path</label>
+                                <input type="text" id="llama_server_path" name="llama_server_path">
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="host">Host</label>
+                                    <input type="text" id="host" name="host" value="127.0.0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="port">Port</label>
+                                    <input type="number" id="port" name="port" value="8080">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="ctx_size">Context Size</label>
+                                    <input type="number" id="ctx_size" name="ctx_size" value="4096">
+                                </div>
+                                <div class="form-group">
+                                    <label for="threads">Threads</label>
+                                    <input type="number" id="threads" name="threads" value="4">
+                                </div>
+                                <div class="form-group">
+                                    <label for="threads_batch">Threads Batch</label>
+                                    <input type="number" id="threads_batch" name="threads_batch" value="4">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="batch_size">Batch Size</label>
+                                    <input type="number" id="batch_size" name="batch_size" value="2048">
+                                </div>
+                                <div class="form-group">
+                                    <label for="ubatch_size">uBatch Size</label>
+                                    <input type="number" id="ubatch_size" name="ubatch_size" value="512">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="n_gpu_layers">GPU Layers</label>
+                                    <input type="number" id="n_gpu_layers" name="n_gpu_layers" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="main_gpu">Main GPU</label>
+                                    <input type="number" id="main_gpu" name="main_gpu" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="parallel">Parallel</label>
+                                    <input type="number" id="parallel" name="parallel" value="1">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="cache_type_k">Cache Type K</label>
+                                    <select id="cache_type_k" name="cache_type_k">
+                                        <option value="f16">f16</option>
+                                        <option value="f32">f32</option>
+                                        <option value="q8">q8</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="cache_type_v">Cache Type V</label>
+                                    <select id="cache_type_v" name="cache_type_v">
+                                        <option value="f16">f16</option>
+                                        <option value="f32">f32</option>
+                                        <option value="q8">q8</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="rope_freq_base">RoPE Freq Base</label>
+                                    <input type="number" id="rope_freq_base" name="rope_freq_base" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="rope_freq_scale">RoPE Freq Scale</label>
+                                    <input type="number" id="rope_freq_scale" name="rope_freq_scale" value="0.0" step="0.1">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="flash_attn" name="flash_attn">
+                                    <label for="flash_attn">Flash Attention</label>
+                                </div>
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="mlock" name="mlock">
+                                    <label for="mlock">mlock</label>
+                                </div>
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="no_mmap" name="no_mmap">
+                                    <label for="no_mmap">No mmap</label>
+                                </div>
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="cont_batching" name="cont_batching" checked>
+                                    <label for="cont_batching">Continuous Batching</label>
+                                </div>
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="embedding" name="embedding">
+                                    <label for="embedding">Embedding</label>
+                                </div>
+                                <div class="form-group checkbox">
+                                    <input type="checkbox" id="verbose" name="verbose" checked>
+                                    <label for="verbose">Verbose</label>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="numa">NUMA</label>
+                                <select id="numa" name="numa">
+                                    <option value="disabled">disabled</option>
+                                    <option value="distribute">distribute</option>
+                                    <option value="isolate">isolate</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="extra_args">Extra Arguments</label>
+                                <textarea id="extra_args" name="extra_args" rows="3"></textarea>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="submit" class="btn btn-primary">Save Configuration</button>
+                                <button type="reset" class="btn btn-secondary">Reset</button>
+                            </div>
+                        </form>
+                        <div id="configMessage" class="message"></div>
+                    </div>
+                </div>
+
+                <!-- Models Tab -->
+                <div class="tab-content" id="models-tab">
+                    <h2>Models</h2>
+                    <div class="panel">
+                        <div class="form-group">
+                            <label for="models_dir">Models Directory</label>
+                            <input type="text" id="models_dir" name="models_dir" value="/opt/models">
+                        </div>
+                        <button id="discoverBtn" class="btn btn-primary">Discover Models</button>
+                        <div id="modelsMessage" class="message"></div>
+                    </div>
+
+                    <div id="modelsList" class="models-list">
+                        <p>No models discovered. Click "Discover Models" to scan the models directory.</p>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div class="tab-content" id="logs-tab">
+                    <h2>Server Logs</h2>
+                    <div class="panel">
+                        <div class="logs-controls">
+                            <button id="clearLogsBtn" class="btn btn-secondary">Clear Logs</button>
+                            <label class="checkbox-inline">
+                                <input type="checkbox" id="autoScroll" checked>
+                                Auto-scroll
+                            </label>
+                        </div>
+                    </div>
+                    <div id="logsContainer" class="logs-container">
+                        <div class="logs-placeholder">Logs will appear here when server is running</div>
+                    </div>
+                </div>
+
+                <!-- Services Tab -->
+                <div class="tab-content" id="services-tab">
+                    <h2>System Services</h2>
+                    <div id="servicesContainer"></div>
+                </div>
+
+                <!-- System Info Tab -->
+                <div class="tab-content" id="system-tab">
+                    <h2>System Information</h2>
+                    <div id="systemInfo" class="panel info-grid">
+                        <div>Loading system information...</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
