@@ -130,6 +130,48 @@ prompt_input() {
     echo "${result:-$default}"
 }
 
+prompt_port() {
+    local prompt="$1"
+    local default="$2"
+    local result
+
+    while true; do
+        if [[ -n "$default" ]]; then
+            echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}[${default}]${NC}: " >&2
+        else
+            echo -ne "  ${CYAN}?${NC} ${prompt}: " >&2
+        fi
+        read -r result
+        result="${result:-$default}"
+        if [[ "$result" =~ ^[0-9]+$ ]] && (( result >= 1 && result <= 65535 )); then
+            echo "$result"
+            return 0
+        fi
+        echo -e "    ${RED}Invalid port. Enter a number between 1 and 65535.${NC}" >&2
+    done
+}
+
+prompt_dir() {
+    local prompt="$1"
+    local default="$2"
+    local result
+
+    while true; do
+        if [[ -n "$default" ]]; then
+            echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}[${default}]${NC}: " >&2
+        else
+            echo -ne "  ${CYAN}?${NC} ${prompt}: " >&2
+        fi
+        read -r result
+        result="${result:-$default}"
+        if [[ "$result" == /* ]]; then
+            echo "$result"
+            return 0
+        fi
+        echo -e "    ${RED}Invalid path. Must be an absolute path starting with /.${NC}" >&2
+    done
+}
+
 prompt_select() {
     local prompt="$1"
     shift
@@ -313,19 +355,32 @@ configure_installation() {
     echo ""
     
     # Install directory
-    INSTALL_DIR=$(prompt_input "Installation directory" "$INSTALL_DIR")
+    INSTALL_DIR=$(prompt_dir "Installation directory" "$INSTALL_DIR")
     # Derived paths must be updated whenever INSTALL_DIR changes
     VENV_DIR="${INSTALL_DIR}/venv"
     CONFIG_DIR="${INSTALL_DIR}/config"
 
+    # Offer clean install if directory already exists
+    if [[ -d "$INSTALL_DIR" ]]; then
+        echo ""
+        log_warning "Directory ${INSTALL_DIR} already exists."
+        if prompt_yes_no "Clean (wipe) existing installation before reinstalling?" "n"; then
+            CLEAN_INSTALL=true
+        else
+            CLEAN_INSTALL=false
+        fi
+    else
+        CLEAN_INSTALL=false
+    fi
+
     # Models directory
-    MODELS_DIR=$(prompt_input "Models directory (GGUF files)" "$MODELS_DIR")
-    
+    MODELS_DIR=$(prompt_dir "Models directory (GGUF files)" "$MODELS_DIR")
+
     # Web UI port
-    WEB_PORT=$(prompt_input "Web UI port" "$WEB_PORT")
-    
+    WEB_PORT=$(prompt_port "Web UI port" "$WEB_PORT")
+
     # Llama server port
-    LLAMA_SERVER_PORT=$(prompt_input "llama-server port" "$LLAMA_SERVER_PORT")
+    LLAMA_SERVER_PORT=$(prompt_port "llama-server port" "$LLAMA_SERVER_PORT")
     
     # Build llama.cpp if not found
     BUILD_LLAMA=false
@@ -496,9 +551,41 @@ build_llama_cpp() {
     fi
 }
 
+clean_old_installation() {
+    if [[ "${CLEAN_INSTALL:-false}" != true ]]; then
+        return 0
+    fi
+
+    log_step "Cleaning Previous Installation"
+
+    # Stop and remove any running services first
+    systemctl stop    llama-manager.service 2>/dev/null || true
+    systemctl disable llama-manager.service 2>/dev/null || true
+    systemctl stop    llama-server.service  2>/dev/null || true
+    systemctl disable llama-server.service  2>/dev/null || true
+    rm -f /etc/systemd/system/llama-manager.service
+    rm -f /etc/systemd/system/llama-server.service
+    rm -rf /etc/systemd/system/llama-manager.service.d
+    rm -rf /etc/systemd/system/llama-server.service.d
+    systemctl daemon-reload 2>/dev/null || true
+
+    # Remove install directory (but not models or logs unless asked)
+    if [[ -d "$INSTALL_DIR" ]]; then
+        rm -rf "$INSTALL_DIR"
+        log_success "Removed ${INSTALL_DIR}"
+    fi
+
+    if [[ -d "$CONFIG_DIR" ]]; then
+        rm -rf "$CONFIG_DIR"
+        log_success "Removed ${CONFIG_DIR}"
+    fi
+
+    log_success "Clean complete"
+}
+
 create_directories() {
     log_step "Creating Directory Structure"
-    
+
     dirs=(
         "$INSTALL_DIR"
         "$INSTALL_DIR/app"
@@ -510,7 +597,7 @@ create_directories() {
         "$LOG_DIR"
         "$MODELS_DIR"
     )
-    
+
     for dir in "${dirs[@]}"; do
         mkdir -p "$dir"
         log_success "Created: ${dir}"
@@ -579,7 +666,16 @@ REQUIREMENTS
 
 write_config() {
     log_step "Writing Configuration"
-    
+
+    # Ensure numeric values have safe defaults so JSON is always valid
+    [[ "$WEB_PORT" =~ ^[0-9]+$ ]]          || WEB_PORT=8484
+    [[ "$LLAMA_SERVER_PORT" =~ ^[0-9]+$ ]] || LLAMA_SERVER_PORT=8080
+    [[ "$CPU_CORES" =~ ^[0-9]+$ ]]         || CPU_CORES=$(nproc 2>/dev/null || echo 1)
+    [[ "$CPU_THREADS" =~ ^[0-9]+$ ]]       || CPU_THREADS=$CPU_CORES
+    [[ "$TOTAL_RAM_GB" =~ ^[0-9] ]]        || TOTAL_RAM_GB=1.0
+    local threads_half=$(( CPU_THREADS / 2 ))
+    [[ $threads_half -ge 1 ]] || threads_half=1
+
     cat > "${CONFIG_DIR}/config.json" << CONFIGJSON
 {
     "install_dir": "${INSTALL_DIR}",
@@ -597,7 +693,7 @@ write_config() {
     "default_params": {
         "ctx_size": 4096,
         "n_predict": -1,
-        "threads": $((CPU_THREADS / 2)),
+        "threads": ${threads_half},
         "threads_batch": ${CPU_THREADS},
         "n_gpu_layers": 0,
         "flash_attn": false,
@@ -619,7 +715,7 @@ write_config() {
     }
 }
 CONFIGJSON
-    
+
     log_success "Configuration written to ${CONFIG_DIR}/config.json"
 }
 
@@ -808,6 +904,7 @@ main() {
     configure_installation
     install_dependencies
     build_llama_cpp
+    clean_old_installation
     create_directories
     create_service_user
     setup_virtualenv
@@ -840,32 +937,45 @@ case "${1:-}" in
         print_banner
         check_root
         log_step "Uninstalling LlamaServer Manager"
-        
+
         systemctl stop llama-manager 2>/dev/null || true
         systemctl stop llama-server 2>/dev/null || true
         systemctl disable llama-manager 2>/dev/null || true
         systemctl disable llama-server 2>/dev/null || true
         rm -f /etc/systemd/system/llama-manager.service
         rm -f /etc/systemd/system/llama-server.service
+        rm -rf /etc/systemd/system/llama-manager.service.d
+        rm -rf /etc/systemd/system/llama-server.service.d
         systemctl daemon-reload
-        
+
         if prompt_yes_no "Remove installation directory ${INSTALL_DIR}?" "n"; then
             rm -rf "$INSTALL_DIR"
             log_success "Removed ${INSTALL_DIR}"
         fi
-        
+
         if prompt_yes_no "Remove log directory ${LOG_DIR}?" "n"; then
             rm -rf "$LOG_DIR"
             log_success "Removed ${LOG_DIR}"
         fi
-        
+
         log_success "Uninstallation complete"
+        echo ""
+        ;;
+    --clean)
+        # Non-interactive clean: wipe the default install dir and reinstall
+        print_banner
+        check_root
+        log_step "Clean Reinstall - Wiping ${INSTALL_DIR}"
+        CLEAN_INSTALL=true
+        clean_old_installation
+        log_success "Old installation removed. Run install.sh again to reinstall."
         echo ""
         ;;
     --help|-h)
         print_banner
         echo -e "  ${WHITE}Usage:${NC}"
         echo -e "    sudo bash install.sh              ${DIM}# Interactive installation${NC}"
+        echo -e "    sudo bash install.sh --clean      ${DIM}# Wipe existing install, then reinstall${NC}"
         echo -e "    sudo bash install.sh --uninstall  ${DIM}# Remove installation${NC}"
         echo -e "    sudo bash install.sh --help       ${DIM}# Show this help${NC}"
         echo ""

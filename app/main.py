@@ -43,8 +43,12 @@ LOG_DIR = Path("/var/log/llama-manager")
 def load_config():
     """Load configuration from JSON file."""
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logging.warning(f"Config file {CONFIG_FILE} is invalid ({e}), using defaults.")
+            CONFIG_FILE.unlink(missing_ok=True)
     # Fallback defaults
     return {
         "install_dir": str(BASE_DIR),
