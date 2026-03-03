@@ -328,47 +328,82 @@
                 <h2>Server Control</h2>
             </div>
 
-            <!-- Model Selection -->
-            <div class="control-section">
-                <div class="control-header">
-                    <span class="control-icon">📁</span>
-                    <h3>Model Selection</h3>
-                </div>
-                <div class="control-body">
-                    <div class="form-group">
-                        <label for="modelSelect">Available Models</label>
-                        <div class="model-select-wrapper">
-                            <div class="wheel-select" id="modelSelect" tabindex="0" title="Scroll or click arrows to change model">
-                                <span class="wheel-select-arrow wheel-select-prev" data-dir="prev">&#9650;</span>
-                                <span class="wheel-select-text" id="modelSelectText">Loading models...</span>
-                                <span class="wheel-select-arrow wheel-select-next" data-dir="next">&#9660;</span>
+            <!-- Model Selection + Current Status (side by side) -->
+            <div class="server-top-row">
+                <!-- Model Selection (left half) -->
+                <div class="control-section server-top-card">
+                    <div class="control-header">
+                        <span class="control-icon">📁</span>
+                        <h3>Model Selection</h3>
+                    </div>
+                    <div class="control-body">
+                        <div class="form-group">
+                            <label for="modelSelect">Available Models</label>
+                            <div class="model-select-wrapper">
+                                <div class="wheel-select" id="modelSelect" tabindex="0" title="Scroll or click arrows to change model">
+                                    <span class="wheel-select-arrow wheel-select-prev" data-dir="prev">&#9650;</span>
+                                    <span class="wheel-select-text" id="modelSelectText">Loading models...</span>
+                                    <span class="wheel-select-arrow wheel-select-next" data-dir="next">&#9660;</span>
+                                </div>
+                                <button class="btn btn-sm btn-secondary" id="btnRefreshModels" title="Refresh model list">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                </button>
                             </div>
-                            <button class="btn btn-sm btn-secondary" id="btnRefreshModels" title="Refresh model list">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-                            </button>
+                        </div>
+                        <div class="model-info" id="modelInfo" style="display:none;">
+                            <div class="model-info-row">
+                                <span class="model-info-label">File:</span>
+                                <span class="model-info-value" id="modelInfoName">--</span>
+                            </div>
+                            <div class="model-info-row">
+                                <span class="model-info-label">Size:</span>
+                                <span class="model-info-value" id="modelInfoSize">--</span>
+                            </div>
+                            <div class="model-info-row">
+                                <span class="model-info-label">Path:</span>
+                                <span class="model-info-value model-info-path" id="modelInfoPath">--</span>
+                            </div>
+                            <div class="model-info-row">
+                                <span class="model-info-label">Modified:</span>
+                                <span class="model-info-value" id="modelInfoModified">--</span>
+                            </div>
+                        </div>
+                        <div class="models-dir-info">
+                            <span class="info-icon">ℹ️</span>
+                            Models directory: <code id="modelsDirPath">/opt/models</code>
                         </div>
                     </div>
-                    <div class="model-info" id="modelInfo" style="display:none;">
-                        <div class="model-info-row">
-                            <span class="model-info-label">File:</span>
-                            <span class="model-info-value" id="modelInfoName">--</span>
-                        </div>
-                        <div class="model-info-row">
-                            <span class="model-info-label">Size:</span>
-                            <span class="model-info-value" id="modelInfoSize">--</span>
-                        </div>
-                        <div class="model-info-row">
-                            <span class="model-info-label">Path:</span>
-                            <span class="model-info-value model-info-path" id="modelInfoPath">--</span>
-                        </div>
-                        <div class="model-info-row">
-                            <span class="model-info-label">Modified:</span>
-                            <span class="model-info-value" id="modelInfoModified">--</span>
-                        </div>
+                </div>
+
+                <!-- Current Status (right half, condensed table) -->
+                <div class="control-section server-top-card">
+                    <div class="control-header">
+                        <span class="control-icon">📡</span>
+                        <h3>Current Status</h3>
                     </div>
-                    <div class="models-dir-info">
-                        <span class="info-icon">ℹ️</span>
-                        Models directory: <code id="modelsDirPath">/opt/models</code>
+                    <div class="control-body">
+                        <table class="status-table" id="serverStatusGrid">
+                            <tbody>
+                                <tr>
+                                    <td class="status-table-label">State</td>
+                                    <td class="status-table-value" id="srvState">--</td>
+                                    <td class="status-table-label">Health</td>
+                                    <td class="status-table-value" id="srvHealth">--</td>
+                                </tr>
+                                <tr>
+                                    <td class="status-table-label">PID</td>
+                                    <td class="status-table-value" id="srvPid">--</td>
+                                    <td class="status-table-label">Memory</td>
+                                    <td class="status-table-value" id="srvMem">--</td>
+                                </tr>
+                                <tr>
+                                    <td class="status-table-label">Uptime</td>
+                                    <td class="status-table-value" id="srvUptime">--</td>
+                                    <td class="status-table-label">Model</td>
+                                    <td class="status-table-value status-table-value-truncate" id="srvModel">--</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
@@ -389,42 +424,6 @@
                             </button>
                         </div>
                         <pre id="commandPreviewText"></pre>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Current Status -->
-            <div class="control-section">
-                <div class="control-header">
-                    <span class="control-icon">📡</span>
-                    <h3>Current Status</h3>
-                </div>
-                <div class="control-body">
-                    <div class="status-grid" id="serverStatusGrid">
-                        <div class="status-item">
-                            <span class="status-label">State</span>
-                            <span class="status-value" id="srvState">--</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Health</span>
-                            <span class="status-value" id="srvHealth">--</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Loaded Model</span>
-                            <span class="status-value" id="srvModel">--</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Uptime</span>
-                            <span class="status-value" id="srvUptime">--</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">PID</span>
-                            <span class="status-value" id="srvPid">--</span>
-                        </div>
-                        <div class="status-item">
-                            <span class="status-label">Memory (RSS)</span>
-                            <span class="status-value" id="srvMem">--</span>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -675,7 +674,7 @@
     </div>
 
     <!-- Scripts -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/js/vendor/socket.io.min.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
 </html>

@@ -592,6 +592,7 @@ create_directories() {
         "$INSTALL_DIR/app/static"
         "$INSTALL_DIR/app/static/css"
         "$INSTALL_DIR/app/static/js"
+        "$INSTALL_DIR/app/static/js/vendor"
         "$INSTALL_DIR/app/templates"
         "$CONFIG_DIR"
         "$LOG_DIR"
