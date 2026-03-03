@@ -300,6 +300,7 @@
     function updateServerIndicator(server, health) {
         const ind = $('#serverIndicator');
         const indText = ind.querySelector('.indicator-text');
+        const modeBadge = $('#serverModeBadge');
         const uptimeDisp = $('#uptimeDisplay');
         const uptimeText = $('#uptimeText');
         const toggleBtn = $('#btnToggleServer');
@@ -308,9 +309,11 @@
         const restartBtn = $('#btnHeaderRestart');
 
         const isRunning = server.running === true;
+        const isExternal = server.external === true;
+        const isManaged = server.managed === true;
         state.serverRunning = isRunning;
 
-        ind.classList.remove('running', 'stopped', 'loading');
+        ind.classList.remove('running', 'stopped', 'loading', 'external');
 
         if (isRunning) {
             const hStatus = (health && health.status) || 'unknown';
@@ -325,6 +328,22 @@
                 indText.textContent = `Running (${hStatus})`;
             }
 
+            // Show managed/external badge
+            if (modeBadge) {
+                if (isExternal) {
+                    ind.classList.add('external');
+                    modeBadge.textContent = 'external';
+                    modeBadge.className = 'indicator-badge badge-external';
+                    modeBadge.style.display = '';
+                } else if (isManaged) {
+                    modeBadge.textContent = 'managed';
+                    modeBadge.className = 'indicator-badge badge-managed';
+                    modeBadge.style.display = '';
+                } else {
+                    modeBadge.style.display = 'none';
+                }
+            }
+
             uptimeDisp.style.display = '';
             uptimeText.textContent = server.uptime || '--:--:--';
 
@@ -332,7 +351,7 @@
             if (toggleBtn) {
                 toggleBtn.classList.add('btn-header-danger');
                 toggleBtn.classList.remove('btn-header-success');
-                toggleBtn.title = 'Stop Server';
+                toggleBtn.title = isExternal ? 'Stop External Server' : 'Stop Server';
             }
             if (toggleLabel) toggleLabel.textContent = 'Stop';
             if (toggleIcon) toggleIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="1"></rect>';
@@ -344,6 +363,7 @@
         } else {
             ind.classList.add('stopped');
             indText.textContent = 'Stopped';
+            if (modeBadge) modeBadge.style.display = 'none';
             uptimeDisp.style.display = 'none';
 
             // Toggle button → Start mode
@@ -364,7 +384,9 @@
         // Server control tab status
         const srvState = $('#srvState');
         if (srvState) {
-            srvState.textContent = isRunning ? 'Running' : 'Stopped';
+            let stateText = isRunning ? 'Running' : 'Stopped';
+            if (isRunning && isExternal) stateText = 'Running (External)';
+            srvState.textContent = stateText;
             srvState.className = `status-value ${isRunning ? 'text-success' : 'text-danger'}`;
         }
         const srvHealth = $('#srvHealth');
@@ -439,6 +461,79 @@
     // Models
     // ======================================================================
 
+    // ======================================================================
+    // Wheel-Select (custom dropdown: plain text + mouse wheel)
+    // ======================================================================
+
+    /**
+     * Initialise a wheel-select element.
+     * items: [{value, label}]
+     * onChange: callback(item)
+     */
+    function initWheelSelect(container, items, onChange) {
+        container._wsItems = items;
+        container._wsIndex = 0;
+        container._wsOnChange = onChange;
+        _wsRender(container);
+
+        // Mouse wheel
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const dir = e.deltaY > 0 ? 1 : -1;
+            _wsMove(container, dir);
+        }, { passive: false });
+
+        // Arrow buttons
+        container.querySelectorAll('.wheel-select-arrow').forEach((btn) => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const dir = btn.dataset.dir === 'next' ? 1 : -1;
+                _wsMove(container, dir);
+            });
+        });
+
+        // Keyboard
+        container.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') { e.preventDefault(); _wsMove(container, -1); }
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight') { e.preventDefault(); _wsMove(container, 1); }
+        });
+    }
+
+    function _wsMove(container, dir) {
+        const items = container._wsItems;
+        if (!items || items.length === 0) return;
+        let idx = container._wsIndex + dir;
+        if (idx < 0) idx = 0;
+        if (idx >= items.length) idx = items.length - 1;
+        if (idx === container._wsIndex) return;
+        container._wsIndex = idx;
+        _wsRender(container);
+        if (container._wsOnChange) container._wsOnChange(items[idx]);
+    }
+
+    function _wsSetIndex(container, idx) {
+        if (!container._wsItems) return;
+        if (idx < 0 || idx >= container._wsItems.length) return;
+        container._wsIndex = idx;
+        _wsRender(container);
+    }
+
+    function _wsRender(container) {
+        const textEl = container.querySelector('.wheel-select-text');
+        const items = container._wsItems || [];
+        if (items.length === 0) {
+            textEl.textContent = 'No items';
+            return;
+        }
+        const item = items[container._wsIndex];
+        textEl.textContent = item.label;
+        // Show/hide arrows at boundaries
+        const prev = container.querySelector('.wheel-select-prev');
+        const next = container.querySelector('.wheel-select-next');
+        if (prev) prev.style.opacity = container._wsIndex > 0 ? '1' : '0.2';
+        if (next) next.style.opacity = container._wsIndex < items.length - 1 ? '1' : '0.2';
+    }
+
     async function refreshModels() {
         const res = await api('/models');
         if (!res.ok) {
@@ -447,29 +542,38 @@
         }
 
         state.models = res.data.models || [];
-        const select = $('#modelSelect');
+        const container = $('#modelSelect');
         const modelsDirPath = $('#modelsDirPath');
         if (modelsDirPath) modelsDirPath.textContent = res.data.models_dir || '/opt/models';
 
-        select.innerHTML = '';
-
         if (state.models.length === 0) {
-            select.appendChild(el('option', { value: '', textContent: '-- No .gguf models found --' }));
+            initWheelSelect(container, [{ value: '', label: 'No .gguf models found' }], () => {});
+            state.selectedModel = null;
         } else {
-            select.appendChild(el('option', { value: '', textContent: `-- Select a model (${state.models.length} found) --` }));
-            state.models.forEach((m) => {
-                const label = m.directory
-                    ? `${m.directory}/${m.name} (${m.size_gb} GB)`
-                    : `${m.name} (${m.size_gb} GB)`;
-                const opt = el('option', { value: m.path, textContent: label });
-                // Pre-select last used model
-                if (state.config.last_model === m.path) {
-                    opt.selected = true;
-                    state.selectedModel = m;
-                    showModelInfo(m);
-                }
-                select.appendChild(opt);
+            const items = [
+                { value: '', label: `Select a model (${state.models.length} found)` },
+                ...state.models.map((m) => ({
+                    value: m.path,
+                    label: m.directory
+                        ? `${m.directory}/${m.name} (${m.size_gb} GB)`
+                        : `${m.name} (${m.size_gb} GB)`,
+                })),
+            ];
+            initWheelSelect(container, items, (item) => {
+                state.selectedModel = state.models.find((m) => m.path === item.value) || null;
+                showModelInfo(state.selectedModel);
+                updateCommandPreview();
             });
+
+            // Pre-select last used model
+            if (state.config.last_model) {
+                const idx = items.findIndex((it) => it.value === state.config.last_model);
+                if (idx >= 0) {
+                    _wsSetIndex(container, idx);
+                    state.selectedModel = state.models.find((m) => m.path === state.config.last_model) || null;
+                    showModelInfo(state.selectedModel);
+                }
+            }
         }
 
         updateCommandPreview();
@@ -573,9 +677,13 @@
                 ev.stopPropagation();
                 state.paramEnabled[key] = enableCb.checked;
                 card.classList.toggle('param-disabled', !enableCb.checked);
-                // Grey out the value inputs
+                // Grey out the value inputs (including wheel-selects)
                 card.querySelectorAll('.param-input, .param-input-select, input[data-param]').forEach((inp) => {
                     inp.disabled = !enableCb.checked;
+                });
+                card.querySelectorAll('.wheel-select').forEach((ws) => {
+                    ws.style.pointerEvents = enableCb.checked ? '' : 'none';
+                    ws.style.opacity = enableCb.checked ? '' : '0.4';
                 });
                 updateCommandPreview();
             });
@@ -603,20 +711,29 @@
             toggle.appendChild(el('span', { className: 'toggle-slider' }));
             inputInline.appendChild(toggle);
         } else if (pi.type === 'select') {
-            const sel = el('select', {
-                className: 'param-input-select',
+            const wsDiv = el('div', {
+                className: 'wheel-select wheel-select-inline',
+                tabIndex: '0',
                 'data-param': key,
             });
-            (pi.options || []).forEach((opt) => {
-                const o = el('option', { value: opt, textContent: opt });
-                if (opt === currentVal) o.selected = true;
-                sel.appendChild(o);
-            });
-            sel.addEventListener('change', () => {
-                state.params[key] = sel.value;
+            const prevArrow = el('span', { className: 'wheel-select-arrow wheel-select-prev', 'data-dir': 'prev' });
+            prevArrow.innerHTML = '&#9650;';
+            const textSpan = el('span', { className: 'wheel-select-text' });
+            const nextArrow = el('span', { className: 'wheel-select-arrow wheel-select-next', 'data-dir': 'next' });
+            nextArrow.innerHTML = '&#9660;';
+            wsDiv.appendChild(prevArrow);
+            wsDiv.appendChild(textSpan);
+            wsDiv.appendChild(nextArrow);
+            inputInline.appendChild(wsDiv);
+
+            const options = (pi.options || []).map((opt) => ({ value: opt, label: opt }));
+            initWheelSelect(wsDiv, options, (item) => {
+                state.params[key] = item.value;
                 updateCommandPreview();
             });
-            inputInline.appendChild(sel);
+            // Set initial value
+            const initIdx = options.findIndex((o) => o.value === currentVal);
+            if (initIdx >= 0) _wsSetIndex(wsDiv, initIdx);
         } else if (pi.type === 'float') {
             const input = el('input', {
                 type: 'number',
@@ -674,6 +791,10 @@
             inputInline.querySelectorAll('input, select').forEach((inp) => {
                 inp.disabled = true;
             });
+            inputInline.querySelectorAll('.wheel-select').forEach((ws) => {
+                ws.style.pointerEvents = 'none';
+                ws.style.opacity = '0.4';
+            });
         }
 
         right.appendChild(inputInline);
@@ -684,9 +805,9 @@
         header.appendChild(left);
         header.appendChild(right);
 
-        // Click header to expand (but not when clicking input)
+        // Click header to expand (but not when clicking input or wheel-select)
         header.addEventListener('click', (e) => {
-            if (e.target.closest('input, select, label, .toggle-switch')) return;
+            if (e.target.closest('input, select, label, .toggle-switch, .wheel-select')) return;
             card.classList.toggle('expanded');
         });
 
@@ -847,7 +968,8 @@
             return;
         }
 
-        $('#btnStartServer').disabled = true;
+        const toggleBtn = $('#btnToggleServer');
+        if (toggleBtn) toggleBtn.disabled = true;
         toast('Starting server...', 'info');
 
         const res = await api('/server/start', 'POST', {
@@ -859,8 +981,8 @@
             toast('Server starting!', 'success');
         } else {
             toast(`Failed to start: ${res.data.error || res.data.message}`, 'error');
-            $('#btnStartServer').disabled = false;
         }
+        if (toggleBtn) toggleBtn.disabled = false;
     }
 
     async function stopServer() {
@@ -871,15 +993,17 @@
         );
         if (!confirmed) return;
 
-        $('#btnStopServer').disabled = true;
+        const toggleBtn = $('#btnToggleServer');
+        if (toggleBtn) toggleBtn.disabled = true;
         toast('Stopping server...', 'info');
 
         const res = await api('/server/stop', 'POST');
         if (res.ok && res.data.ok) {
-            toast('Server stopped', 'success');
+            toast(res.data.message || 'Server stopped', 'success');
         } else {
             toast(`Failed to stop: ${res.data.error || res.data.message}`, 'error');
         }
+        if (toggleBtn) toggleBtn.disabled = false;
     }
 
     async function restartServer() {
@@ -1124,6 +1248,41 @@
         }
     }
 
+    async function installManagerService() {
+        const confirmed = await showModal(
+            'Install / Update Manager Service',
+            '<p>This will write the llama-manager systemd service file so the web UI can be managed via systemctl and enabled for boot.</p>',
+            'Install'
+        );
+        if (!confirmed) return;
+
+        const res = await api('/service/install-manager', 'POST');
+        if (res.ok && res.data.ok) {
+            toast('Manager service installed successfully!', 'success');
+            refreshServiceStatus();
+        } else {
+            toast(res.data.error || res.data.message || 'Failed to install manager service', 'error');
+        }
+    }
+
+    async function removeService(service) {
+        const label = service === 'llama-server' ? 'llama-server' : 'llama-manager';
+        const confirmed = await showModal(
+            `Remove ${label} Service`,
+            `<p>This will stop, disable, and remove the <strong>${label}</strong> systemd service file.</p><p>This action cannot be undone.</p>`,
+            'Remove'
+        );
+        if (!confirmed) return;
+
+        const res = await api('/service/remove', 'POST', { service });
+        if (res.ok && res.data.ok) {
+            toast(res.data.message || `${label} service removed`, 'success');
+            refreshServiceStatus();
+        } else {
+            toast(res.data.error || res.data.message || `Failed to remove ${label} service`, 'error');
+        }
+    }
+
     // ======================================================================
     // WebSocket
     // ======================================================================
@@ -1260,14 +1419,7 @@
             if (e.target === e.currentTarget) closeModal(false);
         });
 
-        // Model select
-        $('#modelSelect').addEventListener('change', (e) => {
-            const path = e.target.value;
-            state.selectedModel = state.models.find((m) => m.path === path) || null;
-            showModelInfo(state.selectedModel);
-            updateCommandPreview();
-        });
-
+        // Model select (wheel-select is initialised in refreshModels)
         $('#btnRefreshModels').addEventListener('click', refreshModels);
 
         // Header server toggle (Start/Stop single button)
@@ -1364,13 +1516,17 @@
         });
         $('#btnRefreshLogs').addEventListener('click', refreshLogs);
 
-        // Service actions
+        // Service actions - llama-server
         $('#btnSvcLlamaInstall').addEventListener('click', installService);
+        $('#btnSvcLlamaRemove').addEventListener('click', () => removeService('llama-server'));
         $('#btnSvcLlamaEnable').addEventListener('click', () => serviceAction('llama-server', 'enable'));
         $('#btnSvcLlamaDisable').addEventListener('click', () => serviceAction('llama-server', 'disable'));
         $('#btnSvcLlamaStart').addEventListener('click', () => serviceAction('llama-server', 'start'));
         $('#btnSvcLlamaStop').addEventListener('click', () => serviceAction('llama-server', 'stop'));
         $('#btnSvcLlamaRestart').addEventListener('click', () => serviceAction('llama-server', 'restart'));
+        // Service actions - llama-manager
+        $('#btnSvcManagerInstall').addEventListener('click', installManagerService);
+        $('#btnSvcManagerRemove').addEventListener('click', () => removeService('llama-manager'));
         $('#btnSvcManagerEnable').addEventListener('click', () => serviceAction('llama-manager', 'enable'));
         $('#btnSvcManagerDisable').addEventListener('click', () => serviceAction('llama-manager', 'disable'));
     }

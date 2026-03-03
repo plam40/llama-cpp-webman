@@ -243,6 +243,31 @@ pre {
     animation: pulse-dot 0.8s ease-in-out infinite;
 }
 
+.server-indicator.external .indicator-dot {
+    background: var(--accent-info);
+    box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.indicator-badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1px 6px;
+    border-radius: 8px;
+}
+
+.badge-external {
+    background: var(--accent-info-dim);
+    color: var(--accent-info);
+}
+
+.badge-managed {
+    background: var(--accent-success-dim);
+    color: var(--accent-success);
+}
+
 @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
@@ -863,13 +888,71 @@ select.form-control {
     padding-right: 36px;
 }
 
+/* -- Wheel Select (borderless scrollable text) -- */
+.wheel-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: default;
+    user-select: none;
+    outline: none;
+    padding: 4px 0;
+    min-height: 32px;
+}
+
+.wheel-select-text {
+    color: var(--text-primary);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 480px;
+    transition: color 0.15s ease;
+}
+
+.wheel-select:focus .wheel-select-text,
+.wheel-select:hover .wheel-select-text {
+    color: var(--accent-primary);
+}
+
+.wheel-select-arrow {
+    font-size: 0.55rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 2px 4px;
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.wheel-select-arrow:hover {
+    color: var(--accent-primary);
+}
+
+.wheel-select-inline {
+    /* Inline variant for param cards */
+    gap: 4px;
+}
+
+.wheel-select-inline .wheel-select-text {
+    font-size: 0.85rem;
+    max-width: 120px;
+}
+
 .model-select-wrapper {
     display: flex;
+    align-items: center;
     gap: 8px;
 }
 
-.model-select-wrapper select {
+.model-select-wrapper .wheel-select {
     flex: 1;
+    min-width: 0;
+}
+
+.model-select-wrapper .wheel-select-text {
+    flex: 1;
+    min-width: 0;
 }
 
 /* Model Info */
