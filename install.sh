@@ -611,15 +611,31 @@ create_service_user() {
 
     log_step "Creating Service User"
 
+    # Locate user/group management binaries.  On many systems these live in
+    # /usr/sbin which is not always on $PATH (e.g. minimal containers, some
+    # Debian/Ubuntu installations when running via sudo without login shell).
+    local _groupadd _useradd _usermod
+    _groupadd="$(command -v groupadd 2>/dev/null || echo /usr/sbin/groupadd)"
+    _useradd="$(command -v useradd 2>/dev/null || echo /usr/sbin/useradd)"
+    _usermod="$(command -v usermod 2>/dev/null || echo /usr/sbin/usermod)"
+
+    # Verify at least useradd is available
+    if [[ ! -x "$_useradd" ]]; then
+        log_error "useradd not found (looked in PATH and /usr/sbin)"
+        log_warning "The service will be configured to run as root instead"
+        SERVICE_USER="root"
+        return 0
+    fi
+
     if id "$SERVICE_USER" &>/dev/null; then
         log_info "User '${SERVICE_USER}' already exists"
     else
         # Create a system group first to ensure the group exists
         if ! getent group "$SERVICE_USER" &>/dev/null; then
-            groupadd --system "$SERVICE_USER" 2>/dev/null || true
+            "$_groupadd" --system "$SERVICE_USER" 2>/dev/null || true
         fi
         # Create the system user (no home dir needed for a service account)
-        if useradd --system --gid "$SERVICE_USER" --no-create-home \
+        if "$_useradd" --system --gid "$SERVICE_USER" --no-create-home \
                    --shell /usr/sbin/nologin "$SERVICE_USER"; then
             log_success "Created system user: ${SERVICE_USER}"
         else
@@ -639,14 +655,14 @@ create_service_user() {
     fi
     if ! getent group "$SERVICE_USER" &>/dev/null; then
         log_warning "Group '${SERVICE_USER}' does not exist – creating it now"
-        groupadd --system "$SERVICE_USER" 2>/dev/null || true
+        "$_groupadd" --system "$SERVICE_USER" 2>/dev/null || true
     fi
 
     log_success "Service user '${SERVICE_USER}' and group are ready"
 
     # Add to video group for GPU access
     if [[ "$GPU_TYPE" == "nvidia" ]]; then
-        usermod -aG video "$SERVICE_USER" 2>/dev/null || true
+        "$_usermod" -aG video "$SERVICE_USER" 2>/dev/null || true
         log_success "Added ${SERVICE_USER} to video group"
     fi
 }

@@ -260,7 +260,70 @@ pre {
 .navbar-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+}
+
+/* Header Buttons (minimalistic with icons) */
+.btn-header {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+    outline: none;
+    height: 32px;
+}
+
+.btn-header:hover:not(:disabled) {
+    background: var(--border-color);
+}
+
+.btn-header:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.btn-header-success {
+    border-color: rgba(74, 222, 128, 0.3);
+    color: var(--accent-success);
+}
+
+.btn-header-success:hover:not(:disabled) {
+    background: var(--accent-success-dim);
+    border-color: rgba(74, 222, 128, 0.5);
+}
+
+.btn-header-danger {
+    border-color: rgba(248, 113, 113, 0.3);
+    color: var(--accent-danger);
+}
+
+.btn-header-danger:hover:not(:disabled) {
+    background: var(--accent-danger-dim);
+    border-color: rgba(248, 113, 113, 0.5);
+}
+
+.btn-header-ghost {
+    background: transparent;
+    border-color: transparent;
+    padding: 5px 8px;
+}
+
+.btn-header-ghost:hover {
+    background: var(--bg-tertiary);
+}
+
+.header-icon {
+    flex-shrink: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -927,19 +990,20 @@ select.form-control {
 
 .param-categories {
     display: flex;
-    gap: 4px;
-    margin-bottom: 16px;
+    gap: 3px;
+    margin-bottom: 12px;
     flex-wrap: wrap;
 }
 
 .param-cat-btn {
-    padding: 6px 14px;
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border-color);
-    border-radius: 20px;
-    color: var(--text-secondary);
+    padding: 4px 12px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    color: var(--text-muted);
     font-family: var(--font-sans);
-    font-size: 0.82rem;
+    font-size: 0.8rem;
     font-weight: 500;
     cursor: pointer;
     transition: all var(--transition-fast);
@@ -947,37 +1011,41 @@ select.form-control {
 
 .param-cat-btn:hover {
     color: var(--text-primary);
-    border-color: var(--border-light);
 }
 
 .param-cat-btn.active {
-    background: var(--accent-primary-dim);
+    background: transparent;
     color: var(--accent-primary);
-    border-color: var(--accent-primary);
+    border-bottom-color: var(--accent-primary);
 }
 
 .params-container {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 2px;
 }
 
-/* Parameter Card */
+/* Parameter Card - clean, minimal */
 .param-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    border-radius: 0;
     overflow: hidden;
-    transition: box-shadow var(--transition-normal), opacity var(--transition-normal);
+    transition: background var(--transition-fast), opacity var(--transition-normal);
+}
+
+.param-card:last-child {
+    border-bottom: none;
 }
 
 .param-card:hover {
-    box-shadow: var(--shadow-sm);
+    background: var(--bg-card-hover);
 }
 
 /* Disabled (excluded from CLI) state */
 .param-card.param-disabled {
-    opacity: 0.5;
+    opacity: 0.4;
 }
 
 .param-card.param-disabled .param-input,
@@ -994,30 +1062,30 @@ select.form-control {
 }
 
 .param-enable-toggle {
-    width: 36px;
-    height: 20px;
+    width: 32px;
+    height: 18px;
 }
 
 .param-enable-toggle .toggle-slider {
-    border-radius: 10px;
+    border-radius: 9px;
 }
 
 .param-enable-toggle .toggle-slider::before {
-    height: 14px;
-    width: 14px;
+    height: 12px;
+    width: 12px;
     left: 2px;
     bottom: 2px;
 }
 
 .param-enable-toggle input:checked + .toggle-slider::before {
-    transform: translateX(16px);
+    transform: translateX(14px);
 }
 
 .param-card-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 14px 18px;
+    padding: 10px 12px;
     cursor: pointer;
     user-select: none;
 }
@@ -1025,16 +1093,18 @@ select.form-control {
 .param-card-left {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
+    min-width: 0;
 }
 
 .param-category-badge {
-    font-size: 0.7rem;
-    padding: 2px 8px;
-    border-radius: 10px;
+    font-size: 0.65rem;
+    padding: 1px 7px;
+    border-radius: 8px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.3px;
+    flex-shrink: 0;
 }
 
 .cat-performance { background: var(--accent-info-dim); color: var(--accent-info); }
@@ -1046,37 +1116,37 @@ select.form-control {
 
 .param-name {
     font-weight: 600;
-    font-size: 0.95rem;
+    font-size: 0.88rem;
 }
 
 .param-description {
-    font-size: 0.8rem;
-    color: var(--text-secondary);
-    margin-top: 2px;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: 1px;
 }
 
 .param-card-right {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     flex-shrink: 0;
 }
 
 .param-input-inline {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
 }
 
 .param-input {
-    width: 120px;
-    padding: 6px 10px;
+    width: 100px;
+    padding: 4px 8px;
     background: var(--bg-input);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
+    border-radius: 4px;
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     text-align: right;
     outline: none;
     transition: border-color var(--transition-fast);
@@ -1088,22 +1158,22 @@ select.form-control {
 }
 
 .param-input-select {
-    width: 120px;
-    padding: 6px 10px;
+    width: 100px;
+    padding: 4px 8px;
     background: var(--bg-input);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
+    border-radius: 4px;
     color: var(--text-primary);
     font-family: var(--font-mono);
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     outline: none;
     cursor: pointer;
 }
 
 .param-unit {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    min-width: 40px;
+    min-width: 35px;
 }
 
 /* Toggle Switch */
@@ -1156,7 +1226,7 @@ select.form-control {
 }
 
 .param-expand-icon {
-    font-size: 0.8rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
     transition: transform var(--transition-fast);
 }
@@ -1168,8 +1238,7 @@ select.form-control {
 /* Param Detail (expandable info) */
 .param-detail {
     display: none;
-    padding: 0 18px 18px;
-    border-top: 1px solid var(--border-color);
+    padding: 0 12px 12px;
 }
 
 .param-card.expanded .param-detail {
@@ -1177,42 +1246,42 @@ select.form-control {
 }
 
 .param-detail-text {
-    font-size: 0.85rem;
+    font-size: 0.8rem;
     color: var(--text-secondary);
-    line-height: 1.6;
-    margin-bottom: 12px;
-    padding-top: 14px;
+    line-height: 1.5;
+    margin-bottom: 10px;
+    padding-top: 8px;
 }
 
 .param-effects {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 12px;
+    gap: 8px;
 }
 
 .param-effect {
-    padding: 12px;
-    border-radius: var(--radius-sm);
-    font-size: 0.82rem;
-    line-height: 1.5;
+    padding: 8px 10px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+    line-height: 1.4;
 }
 
 .param-effect-increase {
     background: var(--accent-success-dim);
-    border: 1px solid rgba(74, 222, 128, 0.2);
+    border: none;
 }
 
 .param-effect-decrease {
     background: var(--accent-danger-dim);
-    border: 1px solid rgba(248, 113, 113, 0.2);
+    border: none;
 }
 
 .param-effect-title {
     font-weight: 600;
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
     letter-spacing: 0.3px;
-    margin-bottom: 4px;
+    margin-bottom: 2px;
 }
 
 .param-effect-increase .param-effect-title {
@@ -1226,10 +1295,10 @@ select.form-control {
 .param-slider-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    margin-top: 10px;
-    padding-top: 10px;
-    border-top: 1px solid var(--border-color);
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: none;
 }
 
 .param-slider {
@@ -1695,11 +1764,19 @@ select.form-control {
 
 @media (max-width: 768px) {
     .navbar {
-        padding: 0 12px;
+        padding: 0 10px;
     }
 
     .brand-text {
         display: none;
+    }
+
+    .btn-header span:not(.header-icon) {
+        display: none;
+    }
+
+    .btn-header {
+        padding: 5px 8px;
     }
 
     .tabs-nav {
@@ -1734,20 +1811,12 @@ select.form-control {
     .param-card-header {
         flex-direction: column;
         align-items: flex-start;
-        gap: 10px;
+        gap: 8px;
     }
 
     .param-card-right {
         width: 100%;
         justify-content: space-between;
-    }
-
-    .action-buttons {
-        flex-direction: column;
-    }
-
-    .action-buttons .btn {
-        width: 100%;
     }
 
     .service-status-grid {
@@ -1788,6 +1857,62 @@ select.form-control {
     .stats-grid {
         grid-template-columns: 1fr;
     }
+}
+
+/* --------------------------------------------------------------------------
+   Debug Panel
+   -------------------------------------------------------------------------- */
+
+.debug-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 280px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    z-index: 4000;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.debug-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+}
+
+.debug-body {
+    overflow-y: auto;
+    flex: 1;
+}
+
+.debug-live {
+    padding: 6px 12px;
+    background: var(--accent-info-dim);
+    color: var(--accent-info);
+    font-size: 0.72rem;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.debug-content {
+    padding: 8px 12px;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    margin: 0;
 }
 
 /* --------------------------------------------------------------------------

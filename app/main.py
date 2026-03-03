@@ -1163,6 +1163,48 @@ def api_service_install():
     return jsonify({"ok": ok, "message": msg})
 
 
+@app.route("/api/debug", methods=["GET"])
+def api_debug():
+    """Return a diagnostic snapshot for troubleshooting dashboard issues."""
+    with metrics_lock:
+        sys_data = dict(system_metrics)
+    server_status = server_manager.get_status()
+    llama_metrics = server_manager.parse_metrics() if server_status["running"] else {}
+    health = server_manager.get_llama_health() if server_status["running"] else {}
+
+    return jsonify({
+        "ok": True,
+        "diagnostics": {
+            "system_metrics_populated": {
+                "cpu": bool(sys_data.get("cpu")),
+                "memory": bool(sys_data.get("memory")),
+                "gpu": bool(sys_data.get("gpu")),
+                "disk": bool(sys_data.get("disk")),
+                "last_timestamp": sys_data.get("timestamp", 0),
+                "age_seconds": round(time.time() - sys_data.get("timestamp", 0), 1),
+            },
+            "server": {
+                "running": server_status.get("running", False),
+                "model": server_status.get("model_name"),
+                "pid": (server_status.get("process") or {}).get("pid"),
+            },
+            "llama_metrics_keys": list(llama_metrics.keys())[:20],
+            "health": health,
+            "config": {
+                "web_port": config.get("web_port"),
+                "llama_server_port": config.get("llama_server_port"),
+                "models_dir": config.get("models_dir"),
+                "llama_server_path": config.get("llama_server_path"),
+                "gpu_type": config.get("gpu_type"),
+            },
+            "nvidia_available": nvidia_available,
+            "socketio_async_mode": socketio.async_mode,
+        },
+        "raw_system_metrics": sys_data,
+        "raw_server_status": server_status,
+    })
+
+
 @app.route("/api/chat", methods=["POST"])
 def api_chat_proxy():
     """Proxy chat completions to the running llama-server."""
@@ -1200,11 +1242,12 @@ def on_connect():
     server_status = server_manager.get_status()
     llama_metrics = server_manager.parse_metrics() if server_status["running"] else {}
     health = server_manager.get_llama_health() if server_status["running"] else {}
-    logger.debug(
+    logger.info(
         f"[WS] Pushing initial metrics snapshot to new client – "
         f"cpu_populated={bool(data.get('cpu'))} "
         f"mem_populated={bool(data.get('memory'))} "
-        f"gpu_present={bool(data.get('gpu'))}"
+        f"gpu_present={bool(data.get('gpu'))} "
+        f"server_running={server_status.get('running')}"
     )
     emit("metrics_update", {
         "system": data,
