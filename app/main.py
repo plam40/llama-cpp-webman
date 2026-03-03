@@ -261,6 +261,7 @@ class LlamaServerManager:
         self._log_thread: threading.Thread | None = None
         self._stats_cache: dict = {}
         self._stats_cache_time: float = 0
+        self._external_pid: int | None = None  # PID of externally-started llama-server
 
     # -- Model discovery ------------------------------------------------
 
@@ -288,6 +289,75 @@ class LlamaServerManager:
             except OSError:
                 continue
         return models
+
+    # -- External process detection ----------------------------------------
+
+    def find_external_llama_server(self) -> psutil.Process | None:
+        """Find any llama-server process running on the system not managed by us."""
+        our_pid = self.process.pid if self.process and self.process.poll() is None else None
+        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+            try:
+                pinfo = proc.info
+                name = pinfo.get("name", "") or ""
+                cmdline = pinfo.get("cmdline") or []
+                cmdline_str = " ".join(cmdline)
+                # Match the process name or command line
+                if "llama-server" in name or "llama-server" in cmdline_str or "llama_server" in name:
+                    pid = pinfo["pid"]
+                    if pid == our_pid:
+                        continue  # skip our own managed process
+                    return proc
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        return None
+
+    def detect_running_server(self) -> dict | None:
+        """Check for any running llama-server (ours or external).
+        Returns process info dict or None."""
+        # First check our managed process
+        if self.process and self.process.poll() is None:
+            return None  # managed by us, handled normally
+
+        # Look for external instances
+        ext = self.find_external_llama_server()
+        if ext:
+            try:
+                mem = ext.memory_info()
+                cmdline = ext.cmdline()
+                # Try to extract model from command line
+                model_path = None
+                for i, arg in enumerate(cmdline):
+                    if arg in ("--model", "-m") and i + 1 < len(cmdline):
+                        model_path = cmdline[i + 1]
+                        break
+                # Try to extract port from command line
+                port = None
+                for i, arg in enumerate(cmdline):
+                    if arg == "--port" and i + 1 < len(cmdline):
+                        try:
+                            port = int(cmdline[i + 1])
+                        except ValueError:
+                            pass
+                        break
+
+                self._external_pid = ext.pid
+                return {
+                    "pid": ext.pid,
+                    "cpu_percent": ext.cpu_percent(interval=0),
+                    "rss_mb": round(mem.rss / (1024**2)),
+                    "vms_mb": round(mem.vms / (1024**2)),
+                    "threads": ext.num_threads(),
+                    "model_path": model_path,
+                    "port": port,
+                    "external": True,
+                    "create_time": ext.create_time(),
+                }
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                self._external_pid = None
+                return None
+        else:
+            self._external_pid = None
+            return None
 
     # -- Build command line -----------------------------------------------
 
@@ -344,7 +414,15 @@ class LlamaServerManager:
         """Start llama-server with given model and parameters."""
         with self._lock:
             if self.running and self.process and self.process.poll() is None:
-                return False, "Server is already running"
+                return False, "Server is already running (managed by this tool)"
+
+            # Check for external llama-server instances
+            ext = self.find_external_llama_server()
+            if ext:
+                return False, (
+                    f"Another llama-server is already running (PID {ext.pid}). "
+                    "Stop it first or use the Stop button to terminate it."
+                )
 
             if not Path(model_path).exists():
                 return False, f"Model file not found: {model_path}"
@@ -396,43 +474,74 @@ class LlamaServerManager:
             return True, "Server starting..."
 
     def stop(self) -> tuple[bool, str]:
-        """Stop the running llama-server."""
+        """Stop the running llama-server (managed or external)."""
         with self._lock:
-            if not self.running or not self.process:
-                return False, "Server is not running"
+            # Try to stop our managed process first
+            if self.running and self.process:
+                self._append_log("[MANAGER] Stopping managed server...")
+                logger.info("Stopping managed llama-server")
 
-            self._append_log("[MANAGER] Stopping server...")
-            logger.info("Stopping llama-server")
-
-            try:
-                os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-
-            try:
-                self.process.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                logger.warning("Graceful stop timed out, force killing")
                 try:
-                    os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
-                    self.process.wait(timeout=5)
-                except Exception:
+                    os.killpg(os.getpgid(self.process.pid), signal.SIGTERM)
+                except ProcessLookupError:
                     pass
 
-            self.running = False
-            self.process = None
-            self.current_model = None
-            self.start_time = None
-            self._append_log("[MANAGER] Server stopped")
+                try:
+                    self.process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Graceful stop timed out, force killing")
+                    try:
+                        os.killpg(os.getpgid(self.process.pid), signal.SIGKILL)
+                        self.process.wait(timeout=5)
+                    except Exception:
+                        pass
 
-            return True, "Server stopped"
+                self.running = False
+                self.process = None
+                self.current_model = None
+                self.start_time = None
+                self._external_pid = None
+                self._append_log("[MANAGER] Managed server stopped")
+                return True, "Server stopped"
+
+            # Try to stop an external llama-server process
+            ext = self.find_external_llama_server()
+            if ext:
+                ext_pid = ext.pid
+                self._append_log(f"[MANAGER] Stopping external llama-server (PID {ext_pid})...")
+                logger.info(f"Stopping external llama-server (PID {ext_pid})")
+
+                try:
+                    ext.terminate()  # SIGTERM
+                    ext.wait(timeout=15)
+                except psutil.TimeoutExpired:
+                    logger.warning(f"External process {ext_pid} did not stop gracefully, killing")
+                    try:
+                        ext.kill()  # SIGKILL
+                        ext.wait(timeout=5)
+                    except Exception:
+                        pass
+                except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
+                    self._append_log(f"[MANAGER] Could not stop external process: {e}")
+                    return False, f"Failed to stop external process (PID {ext_pid}): {e}"
+
+                self.running = False
+                self.current_model = None
+                self.start_time = None
+                self._external_pid = None
+                self._append_log(f"[MANAGER] External server (PID {ext_pid}) stopped")
+                return True, f"External server (PID {ext_pid}) stopped"
+
+            return False, "Server is not running"
 
     def restart(self, model_path: str | None = None, params: dict | None = None) -> tuple[bool, str]:
-        """Restart llama-server, optionally with new params."""
+        """Restart llama-server, optionally with new params.
+        Handles both managed and external processes."""
         m = model_path or self.current_model
         p = params or self.current_params
         if not m:
             return False, "No model specified"
+        # Stop whatever is running (managed or external)
         self.stop()
         time.sleep(1)
         return self.start(m, p)
@@ -440,9 +549,15 @@ class LlamaServerManager:
     # -- Status -----------------------------------------------------------
 
     def get_status(self) -> dict:
-        """Get current server status."""
+        """Get current server status, including externally-started instances."""
         proc_info = {}
+        is_managed = False
+        is_external = False
+        external_info = None
+
+        # Check our managed process first
         if self.process and self.process.poll() is None:
+            is_managed = True
             try:
                 p = psutil.Process(self.process.pid)
                 mem = p.memory_info()
@@ -454,25 +569,70 @@ class LlamaServerManager:
                     "threads": p.num_threads(),
                 }
             except (psutil.NoSuchProcess, psutil.AccessDenied):
-                pass
+                is_managed = False
+        else:
+            # Our process died or was never started - clean up stale state
+            if self.running and self.process:
+                self.running = False
+                self.process = None
+                self._append_log("[MANAGER] Managed process exited unexpectedly")
+
+        # If we don't have a managed process, look for external ones
+        if not is_managed:
+            external_info = self.detect_running_server()
+            if external_info:
+                is_external = True
+                proc_info = {
+                    "pid": external_info["pid"],
+                    "cpu_percent": external_info["cpu_percent"],
+                    "rss_mb": external_info["rss_mb"],
+                    "vms_mb": external_info["vms_mb"],
+                    "threads": external_info["threads"],
+                }
+
+        is_running = is_managed or is_external
 
         uptime = None
-        if self.start_time and self.running:
+        if is_managed and self.start_time and self.running:
             uptime = str(datetime.now() - self.start_time).split(".")[0]
+        elif is_external and external_info:
+            try:
+                start = datetime.fromtimestamp(external_info["create_time"])
+                uptime = str(datetime.now() - start).split(".")[0]
+            except Exception:
+                uptime = "unknown"
+
+        model = self.current_model
+        model_name = Path(self.current_model).name if self.current_model else None
+        if is_external and external_info and external_info.get("model_path"):
+            model = external_info["model_path"]
+            model_name = Path(external_info["model_path"]).name
 
         return {
-            "running": self.running and self.process is not None and self.process.poll() is None,
-            "model": self.current_model,
-            "model_name": Path(self.current_model).name if self.current_model else None,
+            "running": is_running,
+            "managed": is_managed,
+            "external": is_external,
+            "model": model,
+            "model_name": model_name,
             "params": self.current_params,
             "uptime": uptime,
             "start_time": self.start_time.isoformat() if self.start_time else None,
             "process": proc_info,
         }
 
+    def _get_server_port(self) -> int:
+        """Get the port the llama-server is listening on, checking external too."""
+        port = self.current_params.get("port", config.get("llama_server_port", 8080))
+        # If external process detected with a port, prefer that
+        if self._external_pid and not (self.process and self.process.poll() is None):
+            ext = self.detect_running_server()
+            if ext and ext.get("port"):
+                port = ext["port"]
+        return int(port)
+
     def get_llama_health(self) -> dict:
         """Query llama-server /health endpoint."""
-        port = self.current_params.get("port", config.get("llama_server_port", 8080))
+        port = self._get_server_port()
         try:
             r = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
             return r.json()
@@ -481,7 +641,7 @@ class LlamaServerManager:
 
     def get_llama_slots(self) -> list:
         """Query llama-server /slots endpoint."""
-        port = self.current_params.get("port", config.get("llama_server_port", 8080))
+        port = self._get_server_port()
         try:
             r = requests.get(f"http://127.0.0.1:{port}/slots", timeout=2)
             return r.json()
@@ -490,7 +650,7 @@ class LlamaServerManager:
 
     def get_llama_metrics(self) -> str:
         """Query llama-server /metrics (prometheus) endpoint."""
-        port = self.current_params.get("port", config.get("llama_server_port", 8080))
+        port = self._get_server_port()
         try:
             r = requests.get(f"http://127.0.0.1:{port}/metrics", timeout=2)
             return r.text
@@ -594,6 +754,104 @@ class LlamaServerManager:
         if result.returncode == 0:
             return True, f"Service {service} {action} successful"
         return False, result.stderr.strip() or f"Failed to {action} {service}"
+
+    @staticmethod
+    def remove_service(service: str) -> tuple[bool, str]:
+        """Remove a systemd service (stop, disable, delete unit file)."""
+        service_path = Path(f"/etc/systemd/system/{service}.service")
+        if not service_path.exists():
+            return False, f"Service file {service_path} does not exist"
+
+        errors = []
+        # Stop the service if active
+        result = subprocess.run(
+            ["systemctl", "is-active", f"{service}.service"],
+            capture_output=True, text=True,
+        )
+        if result.stdout.strip() == "active":
+            r = subprocess.run(
+                ["systemctl", "stop", f"{service}.service"],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                errors.append(f"stop failed: {r.stderr.strip()}")
+
+        # Disable the service
+        result = subprocess.run(
+            ["systemctl", "is-enabled", f"{service}.service"],
+            capture_output=True, text=True,
+        )
+        if result.stdout.strip() == "enabled":
+            r = subprocess.run(
+                ["systemctl", "disable", f"{service}.service"],
+                capture_output=True, text=True,
+            )
+            if r.returncode != 0:
+                errors.append(f"disable failed: {r.stderr.strip()}")
+
+        # Remove the service file
+        try:
+            service_path.unlink()
+        except Exception as exc:
+            return False, f"Failed to remove service file: {exc}"
+
+        # Reload systemd daemon
+        subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
+
+        if errors:
+            return True, f"Service removed with warnings: {'; '.join(errors)}"
+        return True, f"Service {service} removed successfully"
+
+    def install_manager_service(self) -> tuple[bool, str]:
+        """Write the systemd service file for the llama-manager web UI."""
+        install_dir = config.get("install_dir", str(BASE_DIR))
+        web_port = config.get("web_port", 8484)
+        venv_python = Path(install_dir) / "venv" / "bin" / "python3"
+        main_script = Path(install_dir) / "app" / "main.py"
+
+        # Fall back to system python if venv doesn't exist
+        if not venv_python.exists():
+            venv_python = Path(sys.executable)
+
+        if not main_script.exists():
+            main_script = Path(__file__).resolve()
+
+        svc_user = config.get("service_user", "root") or "root"
+        try:
+            import pwd
+            pwd.getpwnam(svc_user)
+        except KeyError:
+            svc_user = "root"
+
+        service_content = f"""[Unit]
+Description=LlamaServer Manager Web UI
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User={svc_user}
+Group={svc_user}
+WorkingDirectory={install_dir}
+ExecStart={venv_python} {main_script}
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=llama-manager
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+"""
+        try:
+            service_path = Path("/etc/systemd/system/llama-manager.service")
+            service_path.write_text(service_content)
+            subprocess.run(["systemctl", "daemon-reload"], capture_output=True)
+            logger.info(f"llama-manager.service written and daemon reloaded")
+            return True, "Manager service file installed successfully"
+        except Exception as exc:
+            return False, f"Failed to write service file: {exc}"
 
     def install_service_env(self, model_path: str, params: dict) -> tuple[bool, str]:
         """Write the environment file used by the systemd llama-server service."""
@@ -1163,6 +1421,22 @@ def api_service_install():
     return jsonify({"ok": ok, "message": msg})
 
 
+@app.route("/api/service/remove", methods=["POST"])
+def api_service_remove():
+    data = request.json or {}
+    service = data.get("service")
+    if service not in ("llama-server", "llama-manager"):
+        return jsonify({"ok": False, "error": "Invalid service name"}), 400
+    ok, msg = LlamaServerManager.remove_service(service)
+    return jsonify({"ok": ok, "message": msg})
+
+
+@app.route("/api/service/install-manager", methods=["POST"])
+def api_service_install_manager():
+    ok, msg = server_manager.install_manager_service()
+    return jsonify({"ok": ok, "message": msg})
+
+
 @app.route("/api/debug", methods=["GET"])
 def api_debug():
     """Return a diagnostic snapshot for troubleshooting dashboard issues."""
@@ -1293,8 +1567,9 @@ def metrics_emitter():
                 data = dict(system_metrics)
 
             server_status = server_manager.get_status()
-            llama_metrics = server_manager.parse_metrics() if server_status["running"] else {}
-            health = server_manager.get_llama_health() if server_status["running"] else {}
+            is_running = server_status.get("running", False)
+            llama_metrics = server_manager.parse_metrics() if is_running else {}
+            health = server_manager.get_llama_health() if is_running else {}
 
             socketio.emit("metrics_update", {
                 "system": data,

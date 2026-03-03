@@ -19,6 +19,7 @@
             <div class="server-indicator" id="serverIndicator">
                 <span class="indicator-dot"></span>
                 <span class="indicator-text">Checking...</span>
+                <span class="indicator-badge" id="serverModeBadge" style="display:none;"></span>
             </div>
             <div class="uptime-display" id="uptimeDisplay" style="display:none;">
                 <span class="uptime-icon">⏱</span>
@@ -337,9 +338,11 @@
                     <div class="form-group">
                         <label for="modelSelect">Available Models</label>
                         <div class="model-select-wrapper">
-                            <select id="modelSelect" class="form-control">
-                                <option value="">-- Loading models... --</option>
-                            </select>
+                            <div class="wheel-select" id="modelSelect" tabindex="0" title="Scroll or click arrows to change model">
+                                <span class="wheel-select-arrow wheel-select-prev" data-dir="prev">&#9650;</span>
+                                <span class="wheel-select-text" id="modelSelectText">Loading models...</span>
+                                <span class="wheel-select-arrow wheel-select-next" data-dir="next">&#9660;</span>
+                            </div>
                             <button class="btn btn-sm btn-secondary" id="btnRefreshModels" title="Refresh model list">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                             </button>
@@ -534,6 +537,10 @@
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                             Install / Update
                         </button>
+                        <button class="btn btn-sm btn-danger" id="btnSvcLlamaRemove">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            Remove
+                        </button>
                         <button class="btn btn-sm btn-success" id="btnSvcLlamaEnable">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                             Enable
@@ -589,6 +596,14 @@
                         </div>
                     </div>
                     <div class="service-actions">
+                        <button class="btn btn-sm btn-primary" id="btnSvcManagerInstall">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                            Install / Update
+                        </button>
+                        <button class="btn btn-sm btn-danger" id="btnSvcManagerRemove">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            Remove
+                        </button>
                         <button class="btn btn-sm btn-success" id="btnSvcManagerEnable">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                             Enable
