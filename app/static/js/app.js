@@ -25,6 +25,9 @@
         socket: null,
         theme: localStorage.getItem('theme') || 'dark',
         logAutoScroll: true,
+        debugMode: localStorage.getItem('debugMode') === 'true',
+        metricsReceived: 0,
+        lastMetricsTimestamp: 0,
     };
 
     // Params that are always included in the command (cannot be disabled).
@@ -179,7 +182,13 @@
     // ======================================================================
 
     function updateSystemMetrics(data) {
-        if (!data) return;
+        if (!data) {
+            if (state.debugMode) console.warn('[DEBUG] updateSystemMetrics called with null/undefined data');
+            return;
+        }
+
+        state.metricsReceived++;
+        state.lastMetricsTimestamp = Date.now();
 
         const sys = data.system || {};
         const cpu = sys.cpu || {};
@@ -189,6 +198,19 @@
         const server = data.server || {};
         const llama = data.llama || {};
         const health = data.health || {};
+
+        if (state.debugMode && state.metricsReceived <= 3) {
+            console.log('[DEBUG] metrics_update #' + state.metricsReceived, {
+                hasCpu: !!cpu.percent,
+                hasMem: !!mem.percent,
+                hasGpu: !!gpu.name,
+                hasDisk: !!disk.total_gb,
+                serverRunning: server.running,
+                keys: Object.keys(sys),
+            });
+        }
+
+        updateDebugPanel(data);
 
         // Helper: display a number or '--' if null/undefined (handles 0 correctly)
         const num = (v, suffix = '') => v != null ? `${v}${suffix}` : '--';
@@ -280,6 +302,10 @@
         const indText = ind.querySelector('.indicator-text');
         const uptimeDisp = $('#uptimeDisplay');
         const uptimeText = $('#uptimeText');
+        const toggleBtn = $('#btnToggleServer');
+        const toggleLabel = $('#toggleServerLabel');
+        const toggleIcon = $('#toggleServerIcon');
+        const restartBtn = $('#btnHeaderRestart');
 
         const isRunning = server.running === true;
         state.serverRunning = isRunning;
@@ -302,31 +328,37 @@
             uptimeDisp.style.display = '';
             uptimeText.textContent = server.uptime || '--:--:--';
 
-            $('#btnStartServer').disabled = true;
-            $('#btnStopServer').disabled = false;
-            $('#btnRestartServer').disabled = false;
-            // Apply & Restart mode
-            const applyBtn = $('#btnApplyParams');
-            if (applyBtn) {
-                applyBtn.innerHTML = '<span class="btn-icon">🔄</span> Apply & Restart';
-                applyBtn.className = applyBtn.className.replace('btn-success', 'btn-primary');
-                if (!applyBtn.className.includes('btn-primary')) applyBtn.className += ' btn-primary';
+            // Toggle button → Stop mode
+            if (toggleBtn) {
+                toggleBtn.classList.add('btn-header-danger');
+                toggleBtn.classList.remove('btn-header-success');
+                toggleBtn.title = 'Stop Server';
             }
+            if (toggleLabel) toggleLabel.textContent = 'Stop';
+            if (toggleIcon) toggleIcon.innerHTML = '<rect x="6" y="6" width="12" height="12" rx="1"></rect>';
+            if (restartBtn) restartBtn.disabled = false;
+
+            // Apply & Restart mode on params tab
+            const applyLabel = $('#applyParamsLabel');
+            if (applyLabel) applyLabel.textContent = 'Apply & Restart';
         } else {
             ind.classList.add('stopped');
             indText.textContent = 'Stopped';
             uptimeDisp.style.display = 'none';
 
-            $('#btnStartServer').disabled = false;
-            $('#btnStopServer').disabled = true;
-            $('#btnRestartServer').disabled = true;
-            // Start Server mode
-            const applyBtn = $('#btnApplyParams');
-            if (applyBtn) {
-                applyBtn.innerHTML = '<span class="btn-icon">▶️</span> Start Server';
-                applyBtn.className = applyBtn.className.replace('btn-primary', 'btn-success');
-                if (!applyBtn.className.includes('btn-success')) applyBtn.className += ' btn-success';
+            // Toggle button → Start mode
+            if (toggleBtn) {
+                toggleBtn.classList.remove('btn-header-danger');
+                toggleBtn.classList.add('btn-header-success');
+                toggleBtn.title = 'Start Server';
             }
+            if (toggleLabel) toggleLabel.textContent = 'Start';
+            if (toggleIcon) toggleIcon.innerHTML = '<polygon points="5 3 19 12 5 21 5 3"></polygon>';
+            if (restartBtn) restartBtn.disabled = true;
+
+            // Start Server mode on params tab
+            const applyLabel = $('#applyParamsLabel');
+            if (applyLabel) applyLabel.textContent = 'Start Server';
         }
 
         // Server control tab status
@@ -1097,18 +1129,28 @@
     // ======================================================================
 
     function initSocket() {
+        if (typeof io === 'undefined') {
+            console.error('[CRITICAL] Socket.IO library not loaded – falling back to HTTP polling');
+            toast('WebSocket library failed to load – using HTTP polling', 'warning', 6000);
+            startMetricsPolling();
+            return;
+        }
+
         const socket = io({ transports: ['websocket', 'polling'] });
         state.socket = socket;
 
         socket.on('connect', () => {
-            console.log('WebSocket connected');
-            // Ask for an immediate snapshot so the dashboard isn't blank while
-            // waiting for the next background emit cycle.
+            console.log('[WS] Connected (id=' + socket.id + ')');
             socket.emit('request_metrics');
         });
 
-        socket.on('disconnect', () => {
-            console.log('WebSocket disconnected');
+        socket.on('disconnect', (reason) => {
+            console.warn('[WS] Disconnected: ' + reason);
+        });
+
+        socket.on('connect_error', (err) => {
+            console.error('[WS] Connection error:', err.message);
+            if (state.debugMode) toast('WebSocket error: ' + err.message, 'warning', 5000);
         });
 
         socket.on('metrics_update', (data) => {
@@ -1122,8 +1164,7 @@
         });
 
         socket.on('connected', () => {
-            console.log('Server acknowledged connection');
-            // Request metrics immediately upon acknowledgement as well.
+            console.log('[WS] Server acknowledged connection');
             socket.emit('request_metrics');
         });
 
@@ -1134,7 +1175,7 @@
 
         setTimeout(() => {
             if (!_wsReceived) {
-                console.warn('WebSocket metrics not received – starting HTTP polling fallback');
+                console.warn('[WS] No metrics received via WebSocket after 5s – starting HTTP polling fallback');
                 startMetricsPolling();
             }
         }, 5000);
@@ -1159,6 +1200,46 @@
                 }
             } catch (_) { /* ignore */ }
         }, 3000);
+    }
+
+    // ======================================================================
+    // Debug Panel
+    // ======================================================================
+
+    function toggleDebugMode() {
+        state.debugMode = !state.debugMode;
+        localStorage.setItem('debugMode', state.debugMode);
+        const panel = $('#debugPanel');
+        if (panel) panel.style.display = state.debugMode ? 'block' : 'none';
+        toast(state.debugMode ? 'Debug mode enabled – check browser console & debug panel' : 'Debug mode disabled', 'info', 3000);
+        if (state.debugMode) fetchDebugDiagnostics();
+    }
+
+    async function fetchDebugDiagnostics() {
+        const res = await api('/debug');
+        if (!res.ok) {
+            console.error('[DEBUG] Failed to fetch /api/debug', res);
+            return;
+        }
+        console.log('[DEBUG] Server diagnostics:', res.data);
+        const panel = $('#debugContent');
+        if (panel) {
+            panel.textContent = JSON.stringify(res.data, null, 2);
+        }
+    }
+
+    function updateDebugPanel(data) {
+        if (!state.debugMode) return;
+        const el = $('#debugLive');
+        if (!el) return;
+        const sys = data.system || {};
+        el.textContent =
+            `Updates: ${state.metricsReceived} | ` +
+            `CPU: ${(sys.cpu || {}).percent ?? 'N/A'}% | ` +
+            `MEM: ${(sys.memory || {}).percent ?? 'N/A'}% | ` +
+            `GPU: ${(sys.gpu || {}).name ?? 'none'} | ` +
+            `Server: ${(data.server || {}).running ? 'running' : 'stopped'} | ` +
+            `WS: ${state.socket ? (state.socket.connected ? 'connected' : 'disconnected') : 'no socket'}`;
     }
 
     // ======================================================================
@@ -1189,10 +1270,20 @@
 
         $('#btnRefreshModels').addEventListener('click', refreshModels);
 
-        // Server control
-        $('#btnStartServer').addEventListener('click', startServer);
-        $('#btnStopServer').addEventListener('click', stopServer);
-        $('#btnRestartServer').addEventListener('click', restartServer);
+        // Header server toggle (Start/Stop single button)
+        $('#btnToggleServer').addEventListener('click', () => {
+            if (state.serverRunning) {
+                stopServer();
+            } else {
+                startServer();
+            }
+        });
+
+        // Header restart button
+        $('#btnHeaderRestart').addEventListener('click', restartServer);
+
+        // Debug toggle
+        $('#btnDebugToggle').addEventListener('click', toggleDebugMode);
 
         // Copy command
         $('#btnCopyCommand').addEventListener('click', () => {
@@ -1289,7 +1380,7 @@
     // ======================================================================
 
     async function init() {
-        console.log('🦙 LlamaServer Manager initializing...');
+        console.log('LlamaServer Manager initializing...');
 
         // Set theme
         setTheme(state.theme);
@@ -1302,6 +1393,8 @@
         if (cfgRes.ok) {
             state.config = cfgRes.data;
             state.params = { ...(cfgRes.data.default_params || {}) };
+        } else {
+            console.error('[INIT] Failed to load config:', cfgRes.data);
         }
 
         // Load param info & build UI
@@ -1314,15 +1407,32 @@
         // Init events
         initEvents();
 
-        // Load initial status
-        const statusRes = await api('/server/status');
-        if (statusRes.ok) {
-            const s = statusRes.data.status || {};
-            state.serverRunning = s.running || false;
-            if (s.running && s.params) {
-                state.params = { ...state.params, ...s.params };
-                buildParamsUI();
+        // Load initial status & populate dashboard immediately via REST
+        try {
+            const [statusRes, sysRes] = await Promise.all([
+                api('/server/status'),
+                api('/system/metrics'),
+            ]);
+            if (statusRes.ok) {
+                const s = statusRes.data.status || {};
+                state.serverRunning = s.running || false;
+                if (s.running && s.params) {
+                    state.params = { ...state.params, ...s.params };
+                    buildParamsUI();
+                }
             }
+            // Populate dashboard immediately so it's not blank
+            if (sysRes.ok || statusRes.ok) {
+                updateSystemMetrics({
+                    system: sysRes.ok ? sysRes.data : {},
+                    server: statusRes.ok ? (statusRes.data.status || {}) : {},
+                    llama: {},
+                    health: statusRes.ok ? (statusRes.data.health || {}) : {},
+                });
+                console.log('[INIT] Dashboard populated via REST API');
+            }
+        } catch (err) {
+            console.error('[INIT] Failed to load initial status:', err);
         }
 
         // Update command preview
@@ -1337,7 +1447,14 @@
         // Init WebSocket
         initSocket();
 
-        console.log('🦙 LlamaServer Manager ready!');
+        // Show debug panel if debug mode was previously enabled
+        if (state.debugMode) {
+            const panel = $('#debugPanel');
+            if (panel) panel.style.display = 'block';
+            fetchDebugDiagnostics();
+        }
+
+        console.log('LlamaServer Manager ready!');
     }
 
     // Start
