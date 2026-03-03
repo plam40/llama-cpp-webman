@@ -13,6 +13,10 @@
         config: {},
         paramInfo: {},
         params: {},
+        // paramEnabled tracks whether each parameter is included in the CLI command.
+        // Essential params (model, host, port, ctx_size, threads, etc.) default to
+        // enabled; optional flags default based on their typical use.
+        paramEnabled: {},
         models: [],
         selectedModel: null,
         serverRunning: false,
@@ -22,6 +26,13 @@
         theme: localStorage.getItem('theme') || 'dark',
         logAutoScroll: true,
     };
+
+    // Params that are always included in the command (cannot be disabled).
+    const ESSENTIAL_PARAMS = new Set([
+        'host', 'port', 'ctx_size', 'threads', 'threads_batch',
+        'batch_size', 'ubatch_size', 'n_predict', 'parallel', 'n_gpu_layers',
+        'cache_type_k', 'cache_type_v',
+    ]);
 
     // ======================================================================
     // DOM Helpers
@@ -179,15 +190,18 @@
         const llama = data.llama || {};
         const health = data.health || {};
 
+        // Helper: display a number or '--' if null/undefined (handles 0 correctly)
+        const num = (v, suffix = '') => v != null ? `${v}${suffix}` : '--';
+
         // -- CPU --
-        const cpuPct = cpu.percent || 0;
+        const cpuPct = cpu.percent ?? 0;
         setGauge('gaugeCpu', cpuPct);
         $('#gaugeCpuText').textContent = `${Math.round(cpuPct)}%`;
-        $('#gaugeCpuSub').textContent = `${cpu.freq_current || '--'} MHz`;
-        $('#cpuFreq').textContent = `${cpu.freq_current || '--'} / ${cpu.freq_max || '--'} MHz`;
+        $('#gaugeCpuSub').textContent = cpu.freq_current != null ? `${cpu.freq_current} MHz` : '-- MHz';
+        $('#cpuFreq').textContent = `${num(cpu.freq_current)} / ${num(cpu.freq_max)} MHz`;
         $('#cpuTemp').textContent = cpu.temperature != null ? `${cpu.temperature} °C` : 'N/A';
         $('#cpuLoad').textContent = `${cpu.load_1m ?? '--'} / ${cpu.load_5m ?? '--'} / ${cpu.load_15m ?? '--'}`;
-        $('#cpuCores').textContent = `${cpu.core_count || '--'} / ${cpu.thread_count || '--'}`;
+        $('#cpuCores').textContent = `${num(cpu.core_count)} / ${num(cpu.thread_count)}`;
 
         // Per-core bars
         const coreBars = $('#cpuCoreBars');
@@ -209,34 +223,34 @@
         }
 
         // -- Memory --
-        const memPct = mem.percent || 0;
+        const memPct = mem.percent ?? 0;
         setGauge('gaugeMem', memPct);
         $('#gaugeMemText').textContent = `${Math.round(memPct)}%`;
-        const memUsedGB = mem.used_mb ? (mem.used_mb / 1024).toFixed(1) : '--';
-        const memTotalGB = mem.total_mb ? (mem.total_mb / 1024).toFixed(1) : '--';
+        const memUsedGB = mem.used_mb != null ? (mem.used_mb / 1024).toFixed(1) : '--';
+        const memTotalGB = mem.total_mb != null ? (mem.total_mb / 1024).toFixed(1) : '--';
         $('#gaugeMemSub').textContent = `${memUsedGB}/${memTotalGB} GB`;
-        $('#memUsed').textContent = `${mem.used_mb || '--'} MB`;
-        $('#memAvailable').textContent = `${mem.available_mb || '--'} MB`;
-        $('#memTotal').textContent = `${mem.total_mb || '--'} MB`;
-        $('#memSwap').textContent = `${mem.swap_used_mb || 0} / ${mem.swap_total_mb || 0} MB`;
+        $('#memUsed').textContent = num(mem.used_mb, ' MB');
+        $('#memAvailable').textContent = num(mem.available_mb, ' MB');
+        $('#memTotal').textContent = num(mem.total_mb, ' MB');
+        $('#memSwap').textContent = `${mem.swap_used_mb ?? 0} / ${mem.swap_total_mb ?? 0} MB`;
         $('#memBar').style.width = `${memPct}%`;
-        $('#swapBar').style.width = `${mem.swap_percent || 0}%`;
+        $('#swapBar').style.width = `${mem.swap_percent ?? 0}%`;
 
         // -- GPU --
         const gpuCard = $('#gpuCard');
         if (gpu && gpu.name) {
             gpuCard.style.display = '';
-            const gpuPct = gpu.gpu_util || 0;
+            const gpuPct = gpu.gpu_util ?? 0;
             setGauge('gaugeGpu', gpuPct);
             $('#gaugeGpuText').textContent = `${Math.round(gpuPct)}%`;
             $('#gaugeGpuSub').textContent = 'Utilization';
-            $('#gpuName').textContent = gpu.name || '--';
-            $('#gpuMemUsed').textContent = `${gpu.mem_used_mb || '--'} MB`;
-            $('#gpuMemTotal').textContent = `${gpu.mem_total_mb || '--'} MB`;
-            $('#gpuTemp').textContent = `${gpu.temperature ?? '--'} °C`;
-            $('#gpuPower').textContent = `${gpu.power_draw_w || '--'} / ${gpu.power_limit_w || '--'} W`;
-            $('#gpuFan').textContent = gpu.fan_speed >= 0 ? `${gpu.fan_speed}%` : 'N/A';
-            $('#gpuClock').textContent = `${gpu.clock_gpu_mhz || '--'} / ${gpu.clock_mem_mhz || '--'} MHz`;
+            $('#gpuName').textContent = gpu.name;
+            $('#gpuMemUsed').textContent = num(gpu.mem_used_mb, ' MB');
+            $('#gpuMemTotal').textContent = num(gpu.mem_total_mb, ' MB');
+            $('#gpuTemp').textContent = num(gpu.temperature, ' °C');
+            $('#gpuPower').textContent = `${num(gpu.power_draw_w)} / ${num(gpu.power_limit_w)} W`;
+            $('#gpuFan').textContent = gpu.fan_speed != null && gpu.fan_speed >= 0 ? `${gpu.fan_speed}%` : 'N/A';
+            $('#gpuClock').textContent = `${num(gpu.clock_gpu_mhz)} / ${num(gpu.clock_mem_mhz)} MHz`;
 
             $('#gpuUtilBar').style.width = `${gpuPct}%`;
             const vramPct = gpu.mem_total_mb ? (gpu.mem_used_mb / gpu.mem_total_mb) * 100 : 0;
@@ -250,11 +264,11 @@
         }
 
         // -- Disk --
-        $('#diskUsed').textContent = `${disk.used_gb || '--'} GB`;
-        $('#diskFree').textContent = `${disk.free_gb || '--'} GB`;
-        $('#diskTotal').textContent = `${disk.total_gb || '--'} GB`;
-        $('#diskBar').style.width = `${disk.percent || 0}%`;
-        $('#diskPercent').textContent = `${disk.percent || 0}%`;
+        $('#diskUsed').textContent = num(disk.used_gb, ' GB');
+        $('#diskFree').textContent = num(disk.free_gb, ' GB');
+        $('#diskTotal').textContent = num(disk.total_gb, ' GB');
+        $('#diskBar').style.width = `${disk.percent ?? 0}%`;
+        $('#diskPercent').textContent = `${disk.percent ?? 0}%`;
 
         // -- Server Status --
         updateServerIndicator(server, health);
@@ -291,6 +305,13 @@
             $('#btnStartServer').disabled = true;
             $('#btnStopServer').disabled = false;
             $('#btnRestartServer').disabled = false;
+            // Apply & Restart mode
+            const applyBtn = $('#btnApplyParams');
+            if (applyBtn) {
+                applyBtn.innerHTML = '<span class="btn-icon">🔄</span> Apply & Restart';
+                applyBtn.className = applyBtn.className.replace('btn-success', 'btn-primary');
+                if (!applyBtn.className.includes('btn-primary')) applyBtn.className += ' btn-primary';
+            }
         } else {
             ind.classList.add('stopped');
             indText.textContent = 'Stopped';
@@ -299,6 +320,13 @@
             $('#btnStartServer').disabled = false;
             $('#btnStopServer').disabled = true;
             $('#btnRestartServer').disabled = true;
+            // Start Server mode
+            const applyBtn = $('#btnApplyParams');
+            if (applyBtn) {
+                applyBtn.innerHTML = '<span class="btn-icon">▶️</span> Start Server';
+                applyBtn.className = applyBtn.className.replace('btn-primary', 'btn-success');
+                if (!applyBtn.className.includes('btn-success')) applyBtn.className += ' btn-success';
+            }
         }
 
         // Server control tab status
@@ -455,6 +483,19 @@
             'host', 'port', 'verbose',
         ];
 
+        // Initialise enable state for any param that hasn't been set yet.
+        // Essential params are always enabled; optional ones default to true
+        // except flash_attn (off by default until user explicitly enables it).
+        order.forEach((key) => {
+            if (!(key in state.paramEnabled)) {
+                if (key === 'flash_attn') {
+                    state.paramEnabled[key] = false;
+                } else {
+                    state.paramEnabled[key] = true;
+                }
+            }
+        });
+
         order.forEach((key) => {
             const pi = info[key];
             if (!pi) return;
@@ -466,8 +507,11 @@
     }
 
     function buildParamCard(key, pi, currentVal) {
+        const isEssential = ESSENTIAL_PARAMS.has(key);
+        const isEnabled = isEssential ? true : (state.paramEnabled[key] !== false);
+
         const card = el('div', {
-            className: 'param-card',
+            className: `param-card${isEnabled ? '' : ' param-disabled'}`,
             'data-category': pi.category || 'other',
         });
 
@@ -486,6 +530,29 @@
         ]);
 
         const right = el('div', { className: 'param-card-right' });
+
+        // Enable/Disable toggle (shown for non-essential params)
+        if (!isEssential) {
+            const enableWrap = el('div', { className: 'param-enable-wrap', title: isEnabled ? 'Disable this parameter' : 'Enable this parameter' });
+            const enableLabel = el('label', { className: 'toggle-switch param-enable-toggle' });
+            const enableCb = el('input', { type: 'checkbox' });
+            enableCb.checked = isEnabled;
+            enableCb.addEventListener('change', (ev) => {
+                ev.stopPropagation();
+                state.paramEnabled[key] = enableCb.checked;
+                card.classList.toggle('param-disabled', !enableCb.checked);
+                // Grey out the value inputs
+                card.querySelectorAll('.param-input, .param-input-select, input[data-param]').forEach((inp) => {
+                    inp.disabled = !enableCb.checked;
+                });
+                updateCommandPreview();
+            });
+            enableLabel.appendChild(enableCb);
+            enableLabel.appendChild(el('span', { className: 'toggle-slider' }));
+            enableWrap.appendChild(enableLabel);
+            right.appendChild(enableWrap);
+        }
+
         const inputInline = el('div', { className: 'param-input-inline' });
 
         // Build input based on type
@@ -568,6 +635,13 @@
                 updateCommandPreview();
             });
             inputInline.appendChild(input);
+        }
+
+        // Disable value inputs when the param is disabled
+        if (!isEnabled) {
+            inputInline.querySelectorAll('input, select').forEach((inp) => {
+                inp.disabled = true;
+            });
         }
 
         right.appendChild(inputInline);
@@ -675,6 +749,17 @@
     // Command Preview
     // ======================================================================
 
+    // Returns the active (enabled) params to send to the server.
+    function getActiveParams() {
+        const active = {};
+        for (const [key, val] of Object.entries(state.params)) {
+            if (ESSENTIAL_PARAMS.has(key) || state.paramEnabled[key] !== false) {
+                active[key] = val;
+            }
+        }
+        return active;
+    }
+
     function updateCommandPreview() {
         const previewDiv = $('#commandPreview');
         const previewText = $('#commandPreviewText');
@@ -682,33 +767,39 @@
         const modelPath = state.selectedModel ? state.selectedModel.path : '<model_path>';
         const serverPath = state.config.llama_server_path || 'llama-server';
         const params = state.params;
+        const enabled = (key) => ESSENTIAL_PARAMS.has(key) || state.paramEnabled[key] !== false;
 
         let cmd = serverPath;
         cmd += ` \\\n  --model ${modelPath}`;
-        cmd += ` \\\n  --host ${params.host || '0.0.0.0'}`;
-        cmd += ` \\\n  --port ${params.port || 8080}`;
-        cmd += ` \\\n  --ctx-size ${params.ctx_size || 4096}`;
-        cmd += ` \\\n  --threads ${params.threads || 4}`;
-        cmd += ` \\\n  --threads-batch ${params.threads_batch || 4}`;
-        cmd += ` \\\n  --batch-size ${params.batch_size || 2048}`;
-        cmd += ` \\\n  --ubatch-size ${params.ubatch_size || 512}`;
+        cmd += ` \\\n  --host ${params.host ?? '0.0.0.0'}`;
+        cmd += ` \\\n  --port ${params.port ?? 8080}`;
+        cmd += ` \\\n  --ctx-size ${params.ctx_size ?? 4096}`;
+        cmd += ` \\\n  --threads ${params.threads ?? 4}`;
+        cmd += ` \\\n  --threads-batch ${params.threads_batch ?? 4}`;
+        cmd += ` \\\n  --batch-size ${params.batch_size ?? 2048}`;
+        cmd += ` \\\n  --ubatch-size ${params.ubatch_size ?? 512}`;
         cmd += ` \\\n  --n-predict ${params.n_predict ?? -1}`;
-        cmd += ` \\\n  --parallel ${params.parallel || 1}`;
-        cmd += ` \\\n  --n-gpu-layers ${params.n_gpu_layers || 0}`;
-        cmd += ` \\\n  --cache-type-k ${params.cache_type_k || 'f16'}`;
-        cmd += ` \\\n  --cache-type-v ${params.cache_type_v || 'f16'}`;
+        cmd += ` \\\n  --parallel ${params.parallel ?? 1}`;
+        cmd += ` \\\n  --n-gpu-layers ${params.n_gpu_layers ?? 0}`;
+        cmd += ` \\\n  --cache-type-k ${params.cache_type_k ?? 'f16'}`;
+        cmd += ` \\\n  --cache-type-v ${params.cache_type_v ?? 'f16'}`;
 
-        if (params.flash_attn) cmd += ` \\\n  --flash-attn`;
-        if (params.mlock) cmd += ` \\\n  --mlock`;
-        if (params.mmap !== false) cmd += ` \\\n  --mmap`;
-        else cmd += ` \\\n  --no-mmap`;
-        if (params.cont_batching) cmd += ` \\\n  --cont-batching`;
-        if (params.verbose) cmd += ` \\\n  --verbose`;
+        // flash_attn requires an explicit "on" or "off" value
+        if (enabled('flash_attn') && params.flash_attn) {
+            cmd += ` \\\n  --flash-attn ${params.flash_attn}`;
+        }
+        if (enabled('mlock') && params.mlock) cmd += ` \\\n  --mlock`;
+        if (enabled('mmap')) {
+            if (params.mmap !== false) cmd += ` \\\n  --mmap`;
+            else cmd += ` \\\n  --no-mmap`;
+        }
+        if (enabled('cont_batching') && params.cont_batching) cmd += ` \\\n  --cont-batching`;
+        if (enabled('verbose') && params.verbose) cmd += ` \\\n  --verbose`;
 
-        cmd += ` \\\n  --temp ${params.temp ?? 0.7}`;
-        cmd += ` \\\n  --top-k ${params.top_k ?? 40}`;
-        cmd += ` \\\n  --top-p ${params.top_p ?? 0.95}`;
-        cmd += ` \\\n  --repeat-penalty ${params.repeat_penalty ?? 1.1}`;
+        if (enabled('temp')) cmd += ` \\\n  --temp ${params.temp ?? 0.7}`;
+        if (enabled('top_k')) cmd += ` \\\n  --top-k ${params.top_k ?? 40}`;
+        if (enabled('top_p')) cmd += ` \\\n  --top-p ${params.top_p ?? 0.95}`;
+        if (enabled('repeat_penalty')) cmd += ` \\\n  --repeat-penalty ${params.repeat_penalty ?? 1.1}`;
 
         previewText.textContent = cmd;
         previewDiv.style.display = '';
@@ -729,7 +820,7 @@
 
         const res = await api('/server/start', 'POST', {
             model_path: state.selectedModel.path,
-            params: state.params,
+            params: getActiveParams(),
         });
 
         if (res.ok && res.data.ok) {
@@ -770,7 +861,7 @@
         toast('Restarting server...', 'info');
 
         const body = {
-            params: state.params,
+            params: getActiveParams(),
         };
         if (state.selectedModel) {
             body.model_path = state.selectedModel.path;
@@ -990,7 +1081,7 @@
 
         const res = await api('/service/install', 'POST', {
             model_path: state.selectedModel.path,
-            params: state.params,
+            params: getActiveParams(),
         });
 
         if (res.ok && res.data.ok) {
@@ -1011,6 +1102,9 @@
 
         socket.on('connect', () => {
             console.log('WebSocket connected');
+            // Ask for an immediate snapshot so the dashboard isn't blank while
+            // waiting for the next background emit cycle.
+            socket.emit('request_metrics');
         });
 
         socket.on('disconnect', () => {
@@ -1029,7 +1123,42 @@
 
         socket.on('connected', () => {
             console.log('Server acknowledged connection');
+            // Request metrics immediately upon acknowledgement as well.
+            socket.emit('request_metrics');
         });
+
+        // HTTP polling fallback: if the socket doesn't deliver data within 5 s,
+        // fall back to polling the REST endpoint every 3 s.
+        let _wsReceived = false;
+        socket.on('metrics_update', () => { _wsReceived = true; });
+
+        setTimeout(() => {
+            if (!_wsReceived) {
+                console.warn('WebSocket metrics not received – starting HTTP polling fallback');
+                startMetricsPolling();
+            }
+        }, 5000);
+    }
+
+    let _pollingInterval = null;
+    function startMetricsPolling() {
+        if (_pollingInterval) return; // already polling
+        _pollingInterval = setInterval(async () => {
+            try {
+                const [sysRes, srvRes] = await Promise.all([
+                    api('/system/metrics'),
+                    api('/server/status'),
+                ]);
+                if (sysRes.ok && srvRes.ok) {
+                    updateSystemMetrics({
+                        system: sysRes.data,
+                        server: srvRes.data.status || {},
+                        llama: {},
+                        health: srvRes.data.health || {},
+                    });
+                }
+            } catch (_) { /* ignore */ }
+        }, 3000);
     }
 
     // ======================================================================
@@ -1096,6 +1225,8 @@
                 defaults[key] = pi.default;
             });
             state.params = defaults;
+            // Also reset enabled state so flash_attn goes back to off-by-default
+            state.paramEnabled = {};
             buildParamsUI();
             updateCommandPreview();
             toast('Parameters reset to defaults', 'success');
@@ -1103,7 +1234,8 @@
 
         $('#btnApplyParams').addEventListener('click', async () => {
             if (!state.serverRunning) {
-                toast('Server is not running. Use Start to apply parameters.', 'info');
+                // Server is stopped – act as a Start button
+                startServer();
                 return;
             }
             const confirmed = await showModal(

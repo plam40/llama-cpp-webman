@@ -608,16 +608,42 @@ create_service_user() {
     if [[ "$CREATE_USER" != true ]]; then
         return 0
     fi
-    
+
     log_step "Creating Service User"
-    
+
     if id "$SERVICE_USER" &>/dev/null; then
         log_info "User '${SERVICE_USER}' already exists"
     else
-        useradd -r -s /bin/false -d "$INSTALL_DIR" -m "$SERVICE_USER" 2>/dev/null || true
-        log_success "Created system user: ${SERVICE_USER}"
+        # Create a system group first to ensure the group exists
+        if ! getent group "$SERVICE_USER" &>/dev/null; then
+            groupadd --system "$SERVICE_USER" 2>/dev/null || true
+        fi
+        # Create the system user (no home dir needed for a service account)
+        if useradd --system --gid "$SERVICE_USER" --no-create-home \
+                   --shell /usr/sbin/nologin "$SERVICE_USER"; then
+            log_success "Created system user: ${SERVICE_USER}"
+        else
+            log_error "Failed to create user '${SERVICE_USER}'"
+            log_warning "The service will be configured to run as root instead"
+            SERVICE_USER="root"
+            return 0
+        fi
     fi
-    
+
+    # Verify both user and group now exist
+    if ! id "$SERVICE_USER" &>/dev/null; then
+        log_error "User '${SERVICE_USER}' still does not exist after creation attempt"
+        log_warning "Falling back to running as root"
+        SERVICE_USER="root"
+        return 0
+    fi
+    if ! getent group "$SERVICE_USER" &>/dev/null; then
+        log_warning "Group '${SERVICE_USER}' does not exist – creating it now"
+        groupadd --system "$SERVICE_USER" 2>/dev/null || true
+    fi
+
+    log_success "Service user '${SERVICE_USER}' and group are ready"
+
     # Add to video group for GPU access
     if [[ "$GPU_TYPE" == "nvidia" ]]; then
         usermod -aG video "$SERVICE_USER" 2>/dev/null || true

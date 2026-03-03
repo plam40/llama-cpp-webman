@@ -968,11 +968,49 @@ select.form-control {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
     overflow: hidden;
-    transition: box-shadow var(--transition-normal);
+    transition: box-shadow var(--transition-normal), opacity var(--transition-normal);
 }
 
 .param-card:hover {
     box-shadow: var(--shadow-sm);
+}
+
+/* Disabled (excluded from CLI) state */
+.param-card.param-disabled {
+    opacity: 0.5;
+}
+
+.param-card.param-disabled .param-input,
+.param-card.param-disabled .param-input-select,
+.param-card.param-disabled input[data-param] {
+    cursor: not-allowed;
+}
+
+/* Enable/disable toggle wrapper */
+.param-enable-wrap {
+    display: flex;
+    align-items: center;
+    margin-right: 4px;
+}
+
+.param-enable-toggle {
+    width: 36px;
+    height: 20px;
+}
+
+.param-enable-toggle .toggle-slider {
+    border-radius: 10px;
+}
+
+.param-enable-toggle .toggle-slider::before {
+    height: 14px;
+    width: 14px;
+    left: 2px;
+    bottom: 2px;
+}
+
+.param-enable-toggle input:checked + .toggle-slider::before {
+    transform: translateX(16px);
 }
 
 .param-card-header {
