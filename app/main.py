@@ -4,6 +4,13 @@ LlamaServer Manager - Main Application
 Web-based management interface for llama-server (llama.cpp)
 """
 
+# gevent monkey-patching must happen before any other imports so that the
+# standard library's threading, socket, etc. are replaced with gevent-aware
+# equivalents.  This is required for Flask-SocketIO's gevent async mode to
+# work correctly alongside background threading.Thread tasks.
+from gevent import monkey as _gevent_monkey
+_gevent_monkey.patch_all()
+
 import os
 import sys
 import json
@@ -123,21 +130,35 @@ socketio = SocketIO(
 
 # ---------------------------------------------------------------------------
 # GPU Monitoring Helpers
+# nvidia-ml-py is the official NVIDIA package (PyPI: nvidia-ml-py).
+# It exposes the same 'pynvml' Python module as the older pynvml package.
 # ---------------------------------------------------------------------------
 
 nvidia_available = False
 try:
+    # The module name is 'pynvml' regardless of whether you installed it via
+    # the legacy 'pynvml' package or the official 'nvidia-ml-py' package.
     import pynvml
     pynvml.nvmlInit()
     nvidia_available = True
-    logger.info("NVIDIA GPU monitoring enabled via pynvml")
-except Exception:
-    logger.info("pynvml not available or no NVIDIA GPU – GPU metrics disabled")
+    gpu_count = pynvml.nvmlDeviceGetCount()
+    logger.info(
+        f"NVIDIA GPU monitoring enabled via nvidia-ml-py (pynvml); "
+        f"{gpu_count} GPU(s) detected"
+    )
+except ImportError:
+    logger.warning(
+        "nvidia-ml-py (pynvml) not installed – GPU metrics disabled. "
+        "Install with: pip install nvidia-ml-py"
+    )
+except Exception as exc:
+    logger.warning(f"NVIDIA GPU init failed – GPU metrics disabled: {exc}")
 
 
 def get_nvidia_metrics():
-    """Return NVIDIA GPU metrics or empty dict."""
+    """Return NVIDIA GPU metrics dict, or empty dict if unavailable."""
     if not nvidia_available:
+        logger.debug("get_nvidia_metrics: nvidia not available, returning {}")
         return {}
     try:
         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -167,7 +188,7 @@ def get_nvidia_metrics():
             clk_gpu = 0
             clk_mem = 0
 
-        return {
+        metrics = {
             "name": name,
             "gpu_util": util.gpu,
             "mem_util": util.memory,
@@ -181,26 +202,39 @@ def get_nvidia_metrics():
             "clock_gpu_mhz": clk_gpu,
             "clock_mem_mhz": clk_mem,
         }
+        logger.debug(
+            f"[SENSOR] GPU: {name} util={util.gpu}% mem={metrics['mem_used_mb']}/"
+            f"{metrics['mem_total_mb']}MB temp={temp}°C power={round(power,1)}W"
+        )
+        return metrics
     except Exception as exc:
-        logger.debug(f"GPU metrics error: {exc}")
+        logger.warning(f"[SENSOR] GPU metrics error: {exc}")
         return {}
 
 
 def get_cpu_temperature():
-    """Return CPU temperature if available."""
+    """Return CPU temperature (°C) if available, else None."""
     try:
         temps = psutil.sensors_temperatures()
+        if not temps:
+            logger.debug("[SENSOR] CPU temp: sensors_temperatures() returned empty dict")
+            return None
         for chip in ("coretemp", "k10temp", "zenpower", "cpu_thermal", "acpitz"):
             if chip in temps:
                 readings = temps[chip]
                 if readings:
-                    return round(max(r.current for r in readings), 1)
-        # Fallback: first available
+                    val = round(max(r.current for r in readings), 1)
+                    logger.debug(f"[SENSOR] CPU temp from '{chip}': {val} °C")
+                    return val
+        # Fallback: first available chip
         for chip, readings in temps.items():
             if readings:
-                return round(readings[0].current, 1)
-    except Exception:
-        pass
+                val = round(readings[0].current, 1)
+                logger.debug(f"[SENSOR] CPU temp fallback from '{chip}': {val} °C")
+                return val
+        logger.debug("[SENSOR] CPU temp: no suitable sensor found")
+    except Exception as exc:
+        logger.warning(f"[SENSOR] CPU temperature read error: {exc}")
     return None
 
 
@@ -616,7 +650,7 @@ metrics_lock = threading.Lock()
 
 def collect_system_metrics():
     """Background thread: collect system metrics every ~1s."""
-    cpu_percent_per_core = []  # history not needed for per-interval
+    _first_run = True
     while True:
         try:
             cpu_percent = psutil.cpu_percent(interval=0.5, percpu=False)
@@ -635,39 +669,64 @@ def collect_system_metrics():
 
             gpu = get_nvidia_metrics()
 
+            cpu_data = {
+                "percent": cpu_percent,
+                "per_core": cpu_per_core,
+                "freq_current": round(cpu_freq.current, 0) if cpu_freq else 0,
+                "freq_max": round(cpu_freq.max, 0) if cpu_freq and cpu_freq.max else 0,
+                "temperature": cpu_temp,
+                "load_1m": round(load1, 2),
+                "load_5m": round(load5, 2),
+                "load_15m": round(load15, 2),
+                "core_count": psutil.cpu_count(logical=False) or 0,
+                "thread_count": psutil.cpu_count(logical=True) or 0,
+            }
+            mem_data = {
+                "total_mb": round(mem.total / (1024**2)),
+                "used_mb": round(mem.used / (1024**2)),
+                "available_mb": round(mem.available / (1024**2)),
+                "percent": mem.percent,
+                "swap_total_mb": round(swap.total / (1024**2)),
+                "swap_used_mb": round(swap.used / (1024**2)),
+                "swap_percent": swap.percent,
+            }
+            disk_data = {
+                "total_gb": round(disk.total / (1024**3), 1),
+                "used_gb": round(disk.used / (1024**3), 1),
+                "free_gb": round(disk.free / (1024**3), 1),
+                "percent": round(disk.percent, 1),
+            }
+
             with metrics_lock:
-                system_metrics["cpu"] = {
-                    "percent": cpu_percent,
-                    "per_core": cpu_per_core,
-                    "freq_current": round(cpu_freq.current, 0) if cpu_freq else 0,
-                    "freq_max": round(cpu_freq.max, 0) if cpu_freq and cpu_freq.max else 0,
-                    "temperature": cpu_temp,
-                    "load_1m": round(load1, 2),
-                    "load_5m": round(load5, 2),
-                    "load_15m": round(load15, 2),
-                    "core_count": psutil.cpu_count(logical=False) or 0,
-                    "thread_count": psutil.cpu_count(logical=True) or 0,
-                }
-                system_metrics["memory"] = {
-                    "total_mb": round(mem.total / (1024**2)),
-                    "used_mb": round(mem.used / (1024**2)),
-                    "available_mb": round(mem.available / (1024**2)),
-                    "percent": mem.percent,
-                    "swap_total_mb": round(swap.total / (1024**2)),
-                    "swap_used_mb": round(swap.used / (1024**2)),
-                    "swap_percent": swap.percent,
-                }
+                system_metrics["cpu"] = cpu_data
+                system_metrics["memory"] = mem_data
                 system_metrics["gpu"] = gpu
-                system_metrics["disk"] = {
-                    "total_gb": round(disk.total / (1024**3), 1),
-                    "used_gb": round(disk.used / (1024**3), 1),
-                    "free_gb": round(disk.free / (1024**3), 1),
-                    "percent": round(disk.percent, 1),
-                }
+                system_metrics["disk"] = disk_data
                 system_metrics["timestamp"] = time.time()
 
+            # Log detailed sensor data on first successful collection and then
+            # every 60 seconds so the log isn't flooded but debugging is easy.
+            if _first_run:
+                logger.info(
+                    f"[SENSOR] First metrics collected – "
+                    f"CPU: {cpu_percent:.1f}%  "
+                    f"MEM: {mem_data['used_mb']}/{mem_data['total_mb']} MB ({mem.percent:.1f}%)  "
+                    f"DISK: {disk_data['used_gb']}/{disk_data['total_gb']} GB  "
+                    f"CPU_TEMP: {cpu_temp}°C  "
+                    f"GPU: {'present' if gpu else 'not detected'}"
+                )
+                _first_run = False
+            else:
+                logger.debug(
+                    f"[SENSOR] CPU={cpu_percent:.1f}% "
+                    f"MEM={mem.percent:.1f}% "
+                    f"DISK={disk_data['percent']}% "
+                    f"CPU_TEMP={cpu_temp} "
+                    f"GPU_util={gpu.get('gpu_util', 'N/A')}%"
+                )
+
         except Exception as exc:
-            logger.debug(f"Metrics collection error: {exc}")
+            logger.error(f"[SENSOR] Metrics collection error: {exc}", exc_info=True)
 
         time.sleep(0.8)
 
@@ -1091,13 +1150,33 @@ def api_chat_proxy():
 
 @socketio.on("connect")
 def on_connect():
-    logger.debug("WebSocket client connected")
+    logger.info("WebSocket client connected")
     emit("connected", {"status": "ok"})
+    # Push the current snapshot immediately so the dashboard isn't blank
+    # while waiting for the first background emitter cycle (~1 s).
+    with metrics_lock:
+        data = dict(system_metrics)
+    server_status = server_manager.get_status()
+    llama_metrics = server_manager.parse_metrics() if server_status["running"] else {}
+    health = server_manager.get_llama_health() if server_status["running"] else {}
+    logger.debug(
+        f"[WS] Pushing initial metrics snapshot to new client – "
+        f"cpu_populated={bool(data.get('cpu'))} "
+        f"mem_populated={bool(data.get('memory'))} "
+        f"gpu_present={bool(data.get('gpu'))}"
+    )
+    emit("metrics_update", {
+        "system": data,
+        "server": server_status,
+        "llama": llama_metrics,
+        "health": health,
+        "timestamp": time.time(),
+    })
 
 
 @socketio.on("disconnect")
 def on_disconnect():
-    logger.debug("WebSocket client disconnected")
+    logger.info("WebSocket client disconnected")
 
 
 @socketio.on("request_metrics")
@@ -1122,6 +1201,8 @@ def on_request_metrics():
 # Background emit loop
 def metrics_emitter():
     """Push metrics to all connected clients every ~1s."""
+    logger.info("[WS] metrics_emitter background task started")
+    _emit_count = 0
     while True:
         try:
             with metrics_lock:
@@ -1138,8 +1219,18 @@ def metrics_emitter():
                 "health": health,
                 "timestamp": time.time(),
             })
-        except Exception:
-            pass
+
+            _emit_count += 1
+            # Periodic confirmation that data is flowing (every 30 s)
+            if _emit_count % 30 == 0:
+                logger.info(
+                    f"[WS] metrics_emitter: {_emit_count} broadcasts so far – "
+                    f"cpu={data.get('cpu', {}).get('percent', 'N/A')}% "
+                    f"mem={data.get('memory', {}).get('percent', 'N/A')}% "
+                    f"gpu_present={bool(data.get('gpu'))}"
+                )
+        except Exception as exc:
+            logger.warning(f"[WS] metrics_emitter error: {exc}", exc_info=True)
         socketio.sleep(1)
 
 
@@ -1149,10 +1240,15 @@ def metrics_emitter():
 
 def main():
     port = config.get("web_port", 8484)
-    logger.info(f"Starting LlamaServer Manager on port {port}")
-    logger.info(f"Config: {CONFIG_FILE}")
-    logger.info(f"Models dir: {config.get('models_dir')}")
-    logger.info(f"llama-server: {config.get('llama_server_path')}")
+    logger.info("=" * 60)
+    logger.info("Starting LlamaServer Manager")
+    logger.info(f"  Port        : {port}")
+    logger.info(f"  Config file : {CONFIG_FILE}")
+    logger.info(f"  Models dir  : {config.get('models_dir')}")
+    logger.info(f"  llama-server: {config.get('llama_server_path')}")
+    logger.info(f"  GPU type    : {config.get('gpu_type', 'unknown')}")
+    logger.info(f"  NVIDIA NVML : {'enabled' if nvidia_available else 'disabled'}")
+    logger.info("=" * 60)
 
     # Start background metrics emitter
     socketio.start_background_task(metrics_emitter)

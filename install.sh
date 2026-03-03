@@ -100,15 +100,16 @@ prompt_yes_no() {
     else
         yn_hint="[y/N]"
     fi
-    
+
     while true; do
-        echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}${yn_hint}${NC} "
+        # Write prompt to stderr so it is NOT captured by $() command substitution
+        echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}${yn_hint}${NC} " >&2
         read -r answer
         answer="${answer:-$default}"
         case "$answer" in
             [Yy]*) return 0 ;;
             [Nn]*) return 1 ;;
-            *) echo -e "    ${DIM}Please answer yes or no${NC}" ;;
+            *) echo -e "    ${DIM}Please answer yes or no${NC}" >&2 ;;
         esac
     done
 }
@@ -117,11 +118,13 @@ prompt_input() {
     local prompt="$1"
     local default="$2"
     local result
-    
+
+    # Write prompt to stderr so it is NOT captured by $() command substitution.
+    # Only the actual user input is echoed to stdout and captured.
     if [[ -n "$default" ]]; then
-        echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}[${default}]${NC}: "
+        echo -ne "  ${CYAN}?${NC} ${prompt} ${DIM}[${default}]${NC}: " >&2
     else
-        echo -ne "  ${CYAN}?${NC} ${prompt}: "
+        echo -ne "  ${CYAN}?${NC} ${prompt}: " >&2
     fi
     read -r result
     echo "${result:-$default}"
@@ -131,20 +134,21 @@ prompt_select() {
     local prompt="$1"
     shift
     local options=("$@")
-    
-    echo -e "  ${CYAN}?${NC} ${prompt}"
+
+    # Write prompts to stderr so they are NOT captured by $() command substitution
+    echo -e "  ${CYAN}?${NC} ${prompt}" >&2
     for i in "${!options[@]}"; do
-        echo -e "    ${DIM}$((i+1)))${NC} ${options[$i]}"
+        echo -e "    ${DIM}$((i+1)))${NC} ${options[$i]}" >&2
     done
-    
+
     while true; do
-        echo -ne "    ${CYAN}→${NC} Select option: "
+        echo -ne "    ${CYAN}→${NC} Select option: " >&2
         read -r choice
         if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
             echo "${options[$((choice-1))]}"
             return 0
         fi
-        echo -e "    ${DIM}Invalid selection, try again${NC}"
+        echo -e "    ${DIM}Invalid selection, try again${NC}" >&2
     done
 }
 
@@ -310,7 +314,10 @@ configure_installation() {
     
     # Install directory
     INSTALL_DIR=$(prompt_input "Installation directory" "$INSTALL_DIR")
-    
+    # Derived paths must be updated whenever INSTALL_DIR changes
+    VENV_DIR="${INSTALL_DIR}/venv"
+    CONFIG_DIR="${INSTALL_DIR}/config"
+
     # Models directory
     MODELS_DIR=$(prompt_input "Models directory (GGUF files)" "$MODELS_DIR")
     
@@ -551,6 +558,7 @@ setup_virtualenv() {
         pip install --upgrade pip setuptools wheel
     
     # Create requirements file
+    # nvidia-ml-py is the official NVIDIA package; it installs the 'pynvml' Python module
     cat > "${INSTALL_DIR}/requirements.txt" << 'REQUIREMENTS'
 flask>=3.0.0
 flask-socketio>=5.3.0
@@ -558,7 +566,7 @@ gevent>=23.0.0
 gevent-websocket>=0.10.1
 psutil>=5.9.0
 requests>=2.31.0
-pynvml>=11.5.0;sys_platform=='linux'
+nvidia-ml-py>=12.0.0;sys_platform=='linux'
 py-cpuinfo>=9.0.0
 REQUIREMENTS
     
@@ -619,9 +627,24 @@ install_systemd_services() {
     if [[ "$INSTALL_SERVICE" != true ]]; then
         return 0
     fi
-    
+
     log_step "Installing Systemd Services"
-    
+
+    # ---- Clean up any pre-existing services to avoid stale/conflicting state ----
+    log_info "Stopping and removing any previous llama-manager / llama-server services..."
+    systemctl stop    llama-manager.service 2>/dev/null || true
+    systemctl disable llama-manager.service 2>/dev/null || true
+    systemctl stop    llama-server.service  2>/dev/null || true
+    systemctl disable llama-server.service  2>/dev/null || true
+    # Remove old unit files so systemd won't load stale fragments
+    rm -f /etc/systemd/system/llama-manager.service
+    rm -f /etc/systemd/system/llama-server.service
+    # Drop any override directories that might carry old settings
+    rm -rf /etc/systemd/system/llama-manager.service.d
+    rm -rf /etc/systemd/system/llama-server.service.d
+    systemctl daemon-reload
+    log_success "Previous services cleared"
+
     # LlamaServer Manager Web UI service
     cat > /etc/systemd/system/llama-manager.service << SERVICEEOF
 [Unit]
